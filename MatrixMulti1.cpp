@@ -57,35 +57,35 @@ int main(int argc, char* argv[]) {
     multiplyMatrices(A, B, C, m, n, k);
 
     std::cout << "Matrix C (Result):" << std::endl;
-for (int i = 0; i < m; ++i) {
-    for (int j = 0; j < n; ++j) {
-        std::cout << C[i * n + j] << " ";
+    for (int i = 0; i < m; ++i) {
+        for (int j = 0; j < n; ++j) {
+            std::cout << C[i * n + j] << " ";
+        }
+        std::cout << std::endl;
     }
-    std::cout << std::endl;
-}
-float* C_omp = new float[m * n];
-multiplyMatricesOMP(A, B, C_omp, m, n, k);
+    float* C_omp = new float[m * n];
+    multiplyMatricesOMP(A, B, C_omp, m, n, k);
 
 
-bool same = true;
-for (int i = 0; i < m * n; ++i) {
-    if (fabs(C[i] - C_omp[i]) > 1e-5) {  
-        std::cout << "Mismatch at index " << i << ": "
-                  << C[i] << " vs " << C_omp[i] << std::endl;
-        same = false;
-        break;
+    bool same = true;
+    for (int i = 0; i < m * n; ++i) {
+        if (fabs(C[i] - C_omp[i]) > 1e-5) {  
+            std::cout << "Mismatch at index " << i << ": "
+                      << C[i] << " vs " << C_omp[i] << std::endl;
+            same = false;
+            break;
+        }
     }
-}
-if (same) {
-    std::cout << " Outputs match.\n";
-} else {
-    std::cout << " Outputs differ.\n";
-}
+    if (same) {
+        std::cout << " Outputs match.\n";
+    } else {
+        std::cout << " Outputs differ.\n";
+    }
 
 
-    delete[] A;
-    delete[] B;
-    delete[] C;
+        delete[] A;
+        delete[] B;
+        delete[] C;
 
-    return 0;
-}
+        return 0;
+    }
