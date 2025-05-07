@@ -4,7 +4,9 @@
 #include "anyoption.h"
 #include <omp.h>
 #include <cmath>
-
+#include <chrono>
+using namespace std;
+using namespace std::chrono;
 void multiplyMatrices(float* A, float* B, float* C, int m, int n, int k) {
     for (int i = 0; i < m; ++i)
         for (int j = 0; j < n; ++j) {
@@ -81,11 +83,28 @@ if (same) {
 } else {
     std::cout << " Outputs differ.\n";
 }
+   double total_time_base = 0;
+    for (int i = 0; i < 10; ++i) {
+        auto start = high_resolution_clock::now();
+        multiplyMatrices(A, B, C, m, n, k);
+        auto end = high_resolution_clock::now();
+        total_time_base += duration<double, milli>(end - start).count();
+    }
 
+    double total_time_omp = 0;
+    for (int i = 0; i < 10; ++i) {
+        auto start = high_resolution_clock::now();
+        multiplyMatricesOMP(A, B, C_omp, m, n, k);
+        auto end = high_resolution_clock::now();
+        total_time_omp += duration<double, milli>(end - start).count();
+    }
+
+    cout << "Average time (baseline): " << total_time_base / 10.0 << " ms" << endl;
+    cout << "Average time (OpenMP):   " << total_time_omp / 10.0 << " ms" << endl;
 
     delete[] A;
     delete[] B;
     delete[] C;
-
+    delete[] C_omp;
     return 0;
 }
