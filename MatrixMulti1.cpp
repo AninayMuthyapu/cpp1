@@ -83,13 +83,8 @@ int main(int argc, char* argv[]) {
     } else {
         std::cout << " Outputs differ.\n";
     }
-<<<<<<< HEAD
-}
-if (same) {
-    std::cout << " Outputs match.\n";
-} else {
-    std::cout << " Outputs differ.\n";
-}
+
+
    double total_time_base = 0;
     for (int i = 0; i < 10; ++i) {
         auto start = high_resolution_clock::now();
@@ -97,8 +92,6 @@ if (same) {
         auto end = high_resolution_clock::now();
         total_time_base += duration<double, milli>(end - start).count();
     }
-=======
->>>>>>> 71912cabc97c29634dd4af4a9897d5b8aeaaffc2
 
     double total_time_omp = 0;
     for (int i = 0; i < 10; ++i) {
@@ -111,18 +104,11 @@ if (same) {
     cout << "Average time (baseline): " << total_time_base / 10.0 << " ms" << endl;
     cout << "Average time (OpenMP):   " << total_time_omp / 10.0 << " ms" << endl;
 
-<<<<<<< HEAD
-    delete[] A;
-    delete[] B;
-    delete[] C;
-    delete[] C_omp;
-    return 0;
-}
-=======
+
         delete[] A;
         delete[] B;
         delete[] C;
 
         return 0;
     }
->>>>>>> 71912cabc97c29634dd4af4a9897d5b8aeaaffc2
+
