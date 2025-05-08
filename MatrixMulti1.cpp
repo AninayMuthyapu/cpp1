@@ -116,8 +116,8 @@ int main(int argc, char* argv[]) {
         
     }
 
-    cout << "Average time (baseline): " << total_time_base / 10.0 << " ms" << endl;
-    cout << "Average time (OpenMP):   " << total_time_omp / 10.0 << " ms" << endl;
+    cout << "Average time (baseline): " << total_time_base / itr << " ms" << endl;
+    cout << "Average time (OpenMP):   " << total_time_omp / itr << " ms" << endl;
     double avg_seq = accumulate(seq_gflops.begin(), seq_gflops.end(), 0.0) / itr;
     double avg_par = accumulate(par_gflops.begin(), par_gflops.end(), 0.0) / itr;
 
