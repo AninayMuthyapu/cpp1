@@ -1,10 +1,11 @@
 #include <iostream>
 #include <cstdlib>
 #include <ctime>
-#include "anyoption.h"
+#include "../anyoption.h"  // Go up one level to find the header
 #include <omp.h>
 #include <cmath>
 #include <chrono>
+
 using namespace std;
 using namespace std::chrono;
 void multiplyMatrices(float* A, float* B, float* C, int m, int n, int k) {
@@ -103,7 +104,19 @@ int main(int argc, char* argv[]) {
 
     cout << "Average time (baseline): " << total_time_base / 10.0 << " ms" << endl;
     cout << "Average time (OpenMP):   " << total_time_omp / 10.0 << " ms" << endl;
-
+    auto start = high_resolution_clock::now();
+    multiplyMatrices(A, B, C, m, n, k);
+    auto end = high_resolution_clock::now();
+    double seq_time = duration<double>(end-start).count();
+    double gflops_seq = (2.0 * m * n * k) / (seq_time * 1e9);
+    
+    // OpenMP version
+    start = high_resolution_clock::now();
+    multiplyMatricesOMP(A, B, C_omp, m, n, k);
+    end = high_resolution_clock::now();
+    double omp_time = duration<double>(end-start).count();
+    double gflops_omp = (2.0 * m * n * k) / (omp_time * 1e9);
+    
 
         delete[] A;
         delete[] B;
