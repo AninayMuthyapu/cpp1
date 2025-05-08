@@ -5,6 +5,8 @@
 #include <omp.h>
 #include <cmath>
 #include <chrono>
+#include <vector>
+#include <numeric>
 
 using namespace std;
 using namespace std::chrono;
@@ -36,15 +38,21 @@ int main(int argc, char* argv[]) {
     opt.setOption("m");
     opt.setOption("n");
     opt.setOption("k");
+    opt.setOption("itr");
     opt.processCommandArgs(argc, argv);
 
     int m = std::atoi(opt.getValue("m"));
     int n = std::atoi(opt.getValue("n"));
     int k = std::atoi(opt.getValue("k"));
+    int itr = std::atoi(opt.getValue("itr"));
 
     std::cout << "Matrix A: " << m << "x" << k << std::endl;
     std::cout << "Matrix B: " << k << "x" << n << std::endl;
     std::cout << "Matrix C: " << m << "x" << n << std::endl;
+    std::cout << "Iterations: " << itr  << std::endl;
+
+    const double total_flops = 2*m*n*k;
+    vector<double> seq_gflops, par_gflops;
 
     float* A = new float[m * k];
     float* B = new float[k * n];
@@ -59,13 +67,14 @@ int main(int argc, char* argv[]) {
     
     multiplyMatrices(A, B, C, m, n, k);
 
-    std::cout << "Matrix C (Result):" << std::endl;
-    for (int i = 0; i < m; ++i) {
-        for (int j = 0; j < n; ++j) {
-            std::cout << C[i * n + j] << " ";
-        }
-        std::cout << std::endl;
-    }
+    //std::cout << "Matrix C (Result):" << std::endl;
+    //for (int i = 0; i < m; ++i) {
+    //    for (int j = 0; j < n; ++j) {
+    //        std::cout << C[i * n + j] << " ";
+    //    }
+    //  std::cout << std::endl;
+    //}
+
     float* C_omp = new float[m * n];
     multiplyMatricesOMP(A, B, C_omp, m, n, k);
 
@@ -73,8 +82,8 @@ int main(int argc, char* argv[]) {
     bool same = true;
     for (int i = 0; i < m * n; ++i) {
         if (fabs(C[i] - C_omp[i]) > 1e-5) {  
-            std::cout << "Mismatch at index " << i << ": "
-                      << C[i] << " vs " << C_omp[i] << std::endl;
+            //std::cout << "Mismatch at index " << i << ": "
+             //         << C[i] << " vs " << C_omp[i] << std::endl;
             same = false;
             break;
         }
@@ -86,27 +95,40 @@ int main(int argc, char* argv[]) {
     }
 
 
-   double total_time_base = 0;
-    for (int i = 0; i < 10; ++i) {
+    double total_time_base = 0;
+    for (int i = 0; i < itr; ++i) {
         auto start = high_resolution_clock::now();
         multiplyMatrices(A, B, C, m, n, k);
         auto end = high_resolution_clock::now();
-        total_time_base += duration<double, milli>(end - start).count();
+        double elapsed = duration<double, milli>(end - start).count();
+        total_time_base += elapsed;
+        seq_gflops.push_back((total_flops / elapsed) / 1e6); 
     }
 
     double total_time_omp = 0;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < itr; ++i) {
         auto start = high_resolution_clock::now();
         multiplyMatricesOMP(A, B, C_omp, m, n, k);
         auto end = high_resolution_clock::now();
-        total_time_omp += duration<double, milli>(end - start).count();
+        double elapsed = duration<double, milli>(end - start).count();
+        total_time_omp += elapsed;
+        par_gflops.push_back((total_flops / elapsed) / 1e6);
+        
     }
 
     cout << "Average time (baseline): " << total_time_base / 10.0 << " ms" << endl;
     cout << "Average time (OpenMP):   " << total_time_omp / 10.0 << " ms" << endl;
+    double avg_seq = accumulate(seq_gflops.begin(), seq_gflops.end(), 0.0) / itr;
+    double avg_par = accumulate(par_gflops.begin(), par_gflops.end(), 0.0) / itr;
+
+    cout << "Averages after " << itr << " iterations:\n";
+    cout << "  Sequential: " << avg_seq << " GFLOP/s\n";
+    cout << "  Parallel:   " << avg_par << " GFLOP/s\n";
+    cout << "  Avg Speedup: " << avg_par/avg_seq << "x\n";
+
     
 
-
+    
 
     
     
