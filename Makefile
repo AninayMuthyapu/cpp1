@@ -1,15 +1,9 @@
-# Compiler
 CXX = g++
-CXXFLAGS = -Wall -O2
+CXXFLAGS = -Wall -O2 -fopenmp
 
-# Find all .cpp files in the directory
-SRCS = $(wildcard *.cpp)
-
-# Convert .cpp to .o
+TARGET = cpp1.exe
+SRCS = MatrixMulti1.cpp AnyOption/anyoption.cpp
 OBJS = $(SRCS:.cpp=.o)
-
-# Executable name = name of current directory
-TARGET = $(notdir $(CURDIR))
 
 all: $(TARGET)
 
@@ -17,7 +11,7 @@ $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
 %.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $<
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
 	rm -f $(TARGET) $(OBJS)
