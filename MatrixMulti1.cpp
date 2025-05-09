@@ -10,6 +10,17 @@
 
 using namespace std;
 using namespace std::chrono;
+
+// Function to compare two float matrices within tolerance
+bool compareMatrices(const float* A, const float* B, int size, float epsilon = 1e-5) {
+    for (int i = 0; i < size; ++i) {
+        if (fabs(A[i] - B[i]) > epsilon) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void multiplyMatrices(float* A, float* B, float* C, int m, int n, int k) {
     for (int i = 0; i < m; ++i)
         for (int j = 0; j < n; ++j) {
@@ -19,6 +30,7 @@ void multiplyMatrices(float* A, float* B, float* C, int m, int n, int k) {
             C[i * n + j] = sum;
         }
 }
+
 void multiplyMatricesOMP(float* A, float* B, float* C_omp, int m, int n, int k) {
    #pragma omp parallel for collapse(2)
     for (int i = 0; i < m; ++i)
@@ -69,7 +81,6 @@ int main(int argc, char* argv[]) {
 
     AnyOption opt;
 
-
     opt.setOption("m");
     opt.setOption("n");
     opt.setOption("k");
@@ -107,33 +118,18 @@ int main(int argc, char* argv[]) {
     
     multiplyMatrices(A, B, C, m, n, k);
 
-    //std::cout << "Matrix C (Result):" << std::endl;
-    //for (int i = 0; i < m; ++i) {
-    //    for (int j = 0; j < n; ++j) {
-    //        std::cout << C[i * n + j] << " ";
-    //    }
-    //  std::cout << std::endl;
-    //}
-
-    float* C_omp = new float[m * n];
     multiplyMatricesOMP(A, B, C_omp, m, n, k);
+    multiplyMatricesTiled(A, B, C_tiled, m, n, k, block_size);
 
+    
+    bool seq_par = compareMatrices(C, C_omp, m * n);
+    bool seq_tile = compareMatrices(C, C_tiled, m * n);
+    bool par_tile = compareMatrices(C_omp, C_tiled, m * n);
 
-    bool same = true;
-    for (int i = 0; i < m * n; ++i) {
-        if (fabs(C[i] - C_omp[i]) > 1e-5) {  
-            //std::cout << "Mismatch at index " << i << ": "
-             //         << C[i] << " vs " << C_omp[i] << std::endl;
-            same = false;
-            break;
-        }
-    }
-    if (same) {
-        std::cout << " Outputs match.\n";
-    } else {
-        std::cout << " Outputs differ.\n";
-    }
-
+    std::cout << "Validation Results:" << std::endl;
+    std::cout << " Sequential vs OpenMP: " << (seq_par ? "Match" : "Mismatch") << std::endl;
+    std::cout << " Sequential vs Tiled:  " << (seq_tile ? "Match" : "Mismatch") << std::endl;
+    std::cout << " OpenMP vs Tiled:      " << (par_tile ? "Match" : "Mismatch") << std::endl;
 
     double total_time_base = 0;
     for (int i = 0; i < itr; ++i) {
@@ -153,7 +149,6 @@ int main(int argc, char* argv[]) {
         double elapsed = duration<double, milli>(end - start).count();
         total_time_omp += elapsed;
         par_gflops.push_back((total_flops / elapsed) / 1e6);
-        
     }
 
     double  total_time_tile = 0;
@@ -165,7 +160,6 @@ int main(int argc, char* argv[]) {
         total_time_tile += elapsed;
         tile_gflops.push_back((total_flops / elapsed) / 1e6);
     }
-
 
     cout << "Average time (baseline): " << total_time_base / itr << " ms" << endl;
     cout << "Average time (OpenMP):   " << total_time_omp / itr << " ms" << endl;
@@ -179,14 +173,17 @@ int main(int argc, char* argv[]) {
     cout << "Averages after " << itr << " iterations:\n";
     cout << "  Sequential: " << avg_seq << " GFLOP/s\n";
     cout << "  Parallel:   " << avg_par << " GFLOP/s\n";
-    cout << "  Avg Speedup: " << avg_par/avg_seq << "x\n";
+    cout << "  Tiled:      " << avg_tile << " GFLOP/s\n";
     cout << "  Avg Speedup (Parallel vs Seq): " << avg_par / avg_seq << "x\n";
     cout << "  Avg Speedup (Tiled vs Seq):    " << avg_tile / avg_seq << "x\n";
     cout << "  Avg Speedup (Tiled vs Parallel):    " << avg_tile / avg_par << "x\n";
 
+
     delete[] A;
     delete[] B;
     delete[] C;
-    return 0;
-    }
+    delete[] C_omp;
+    delete[] C_tiled;
 
+    return 0;
+}
