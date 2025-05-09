@@ -106,7 +106,7 @@ int main(int argc, char* argv[]) {
     float* A = new float[m * k];
     float* B = new float[k * n];
     float* C = new float[m * n];
-    
+    float* C_omp = new float[m * n];    
     float* C_tiled = new float[m * n];
 
     
@@ -182,8 +182,7 @@ int main(int argc, char* argv[]) {
     delete[] A;
     delete[] B;
     delete[] C;
-    delete[] C_omp;
-    delete[] C_tiled;
+    
 
     return 0;
 }
