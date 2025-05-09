@@ -20,7 +20,7 @@ void multiplyMatrices(float* A, float* B, float* C, int m, int n, int k) {
         }
 }
 void multiplyMatricesOMP(float* A, float* B, float* C_omp, int m, int n, int k) {
-   #pragma omp parallel for 
+   #pragma omp parallel for collapse(2)
     for (int i = 0; i < m; ++i)
         for (int j = 0; j < n; ++j) {
             float sum = 0.0f;
@@ -29,6 +29,41 @@ void multiplyMatricesOMP(float* A, float* B, float* C_omp, int m, int n, int k) 
             C_omp[i * n + j] = sum;
         }
 }
+
+void multiplyMatricesTiled(float* A, float* B, float* C_tiled, int m, int n, int k, int block_size) {
+    // Initialize result matrix to zero
+    for (int i = 0; i < m * n; ++i)
+        C_tiled[i] = 0.0f;
+
+    // Tiled matrix multiplication
+    for (int block_row_start = 0; block_row_start < m; block_row_start += block_size) {
+        for (int block_col_start = 0; block_col_start < n; block_col_start += block_size) {
+            for (int block_inner_start = 0; block_inner_start < k; block_inner_start += block_size) {
+
+                // Process current tile
+                for (int curr_row_A = block_row_start;
+                     curr_row_A < block_row_start + block_size && curr_row_A < m;
+                     curr_row_A++) {
+
+                    for (int curr_col_B = block_col_start;
+                         curr_col_B < block_col_start + block_size && curr_col_B < n;
+                         curr_col_B++) {
+
+                        for (int curr_col_A_or_row_B = block_inner_start;
+                             curr_col_A_or_row_B < block_inner_start + block_size && curr_col_A_or_row_B < k;
+                             curr_col_A_or_row_B++) {
+
+                            C_tiled[curr_row_A * n + curr_col_B] +=
+                                A[curr_row_A * k + curr_col_A_or_row_B] *
+                                B[curr_col_A_or_row_B * n + curr_col_B];
+                        }
+                    }
+                }
+            }
+        }
+    }   
+}   
+    
 int main(int argc, char* argv[]) {
     srand(time(0));  
 
@@ -46,17 +81,22 @@ int main(int argc, char* argv[]) {
     int k = std::atoi(opt.getValue("k"));
     int itr = std::atoi(opt.getValue("itr"));
 
+    const int block_size = 32;
+
     std::cout << "Matrix A: " << m << "x" << k << std::endl;
     std::cout << "Matrix B: " << k << "x" << n << std::endl;
     std::cout << "Matrix C: " << m << "x" << n << std::endl;
     std::cout << "Iterations: " << itr  << std::endl;
+    std::cout << "Tile Size: " << block_size << std::endl;
 
     const double total_flops = 2*m*n*k;
-    vector<double> seq_gflops, par_gflops;
+    vector<double> seq_gflops, par_gflops,tile_gflops;
 
     float* A = new float[m * k];
     float* B = new float[k * n];
     float* C = new float[m * n];
+    float* C_omp = new float[m * n];
+    float* C_tiled = new float[m * n];
 
     
     for (int i = 0; i < m * k; ++i)
@@ -116,15 +156,34 @@ int main(int argc, char* argv[]) {
         
     }
 
+    double  total_time_tile = 0;
+    for (int i = 0; i < itr; ++i) {
+        auto start = high_resolution_clock::now();
+        multiplyMatricesTiled(A, B, C_tiled, m, n, k, block_size);
+        auto end = high_resolution_clock::now();
+        double elapsed = duration<double, milli>(end - start).count();
+        total_time_tile += elapsed;
+        tile_gflops.push_back((total_flops / elapsed) / 1e6);
+    }
+
+
     cout << "Average time (baseline): " << total_time_base / itr << " ms" << endl;
     cout << "Average time (OpenMP):   " << total_time_omp / itr << " ms" << endl;
+    cout << "Average time (Tiled):    " << total_time_tile / itr << " ms" << endl;
+
     double avg_seq = accumulate(seq_gflops.begin(), seq_gflops.end(), 0.0) / itr;
     double avg_par = accumulate(par_gflops.begin(), par_gflops.end(), 0.0) / itr;
+    double avg_tile = accumulate(tile_gflops.begin(), tile_gflops.end(), 0.0) / itr;
+    
 
     cout << "Averages after " << itr << " iterations:\n";
     cout << "  Sequential: " << avg_seq << " GFLOP/s\n";
     cout << "  Parallel:   " << avg_par << " GFLOP/s\n";
     cout << "  Avg Speedup: " << avg_par/avg_seq << "x\n";
+    cout << "  Avg Speedup (Parallel vs Seq): " << avg_par / avg_seq << "x\n";
+    cout << "  Avg Speedup (Tiled vs Seq):    " << avg_tile / avg_seq << "x\n";
+    cout << "  Avg Speedup (Tiled vs Parallel):    " << avg_tile / avg_par << "x\n";
+
 
     
 
@@ -133,10 +192,9 @@ int main(int argc, char* argv[]) {
     
     
 
-        delete[] A;
-        delete[] B;
-        delete[] C;
-
-        return 0;
+    delete[] A;
+    delete[] B;
+    delete[] C;
+    return 0;
     }
 
