@@ -184,14 +184,6 @@ int main(int argc, char* argv[]) {
     cout << "  Avg Speedup (Tiled vs Seq):    " << avg_tile / avg_seq << "x\n";
     cout << "  Avg Speedup (Tiled vs Parallel):    " << avg_tile / avg_par << "x\n";
 
-
-    
-
-    
-
-    
-    
-
     delete[] A;
     delete[] B;
     delete[] C;
