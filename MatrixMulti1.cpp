@@ -79,7 +79,7 @@ void multiplyMatricesTiled(float* A, float* B, float* C_tiled, int m, int n, int
 }   
 
 template<int BM, int BN ,int BK>
-void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int k, int BM, int BN, int BK, double& gflops, double& time_ms){
+void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int k, double& gflops, double& time_ms){
     for( int i=0;i<m*n;++i){
         C=0.0f;
     }
@@ -230,8 +230,15 @@ int main(int argc, char* argv[]) {
         double total_gflops = 0.0, total_time_ms = 0.0;
         for (int iter = 0; iter < 10; ++iter) {
             double gflops, time_ms;
-            multiplyMatricesTiledTemplated<BM,BN,BK>(A, B, C_tiled, m, n, k, BM, BN, BK, gflops, time_ms);
-           
+            multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int>
+
+            auto start = high_resolution_clock::now();
+            multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int>
+
+            auto end = high_resolution_clock::now();
+            time_ms = duration<double, milli>(end - start).count();
+            gflops = (2.0 * m * n * k / time_ms) / 1e6;
+
             total_gflops += gflops;
             total_time_ms += time_ms;
         }
