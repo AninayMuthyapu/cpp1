@@ -230,14 +230,9 @@ int main(int argc, char* argv[]) {
         double total_gflops = 0.0, total_time_ms = 0.0;
         for (int iter = 0; iter < 10; ++iter) {
             double gflops, time_ms;
-            multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int>
+            multiplyMatricesTiledTemplated<BM,BN,BK>(A,B,C,m,n,k,gflops,time_ms);
 
-            auto start = high_resolution_clock::now();
-            multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int>
-
-            auto end = high_resolution_clock::now();
-            time_ms = duration<double, milli>(end - start).count();
-            gflops = (2.0 * m * n * k / time_ms) / 1e6;
+     
 
             total_gflops += gflops;
             total_time_ms += time_ms;
