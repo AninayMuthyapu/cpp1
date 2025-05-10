@@ -8,7 +8,7 @@
 #include <vector>
 #include <numeric>
 #include <map> 
-
+#include <unordered_map>
 using namespace std;
 using namespace std::chrono;
 
@@ -81,11 +81,9 @@ void multiplyMatricesTiled(float* A, float* B, float* C_tiled, int m, int n, int
 template<int BM, int BN ,int BK>
 void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int k, double& gflops, double& time_ms){
     for( int i=0;i<m*n;++i){
-<<<<<<< HEAD
-        C[i]=0.0f
-=======
+        C[i]=0.0
         C=0.0f;
->>>>>>> e3e4ec75527f9b3bff6e13416163fb2bc832a05c
+
     }
     auto start = high_resolution_clock::now();
 
@@ -288,3 +286,4 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+
