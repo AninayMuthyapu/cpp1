@@ -46,8 +46,8 @@ void multiplyMatricesOMP(float* A, float* B, float* C_omp, int m, int n, int k) 
 void multiplyMatricesTiled(float* A, float* B, float* C_tiled, int m, int n, int k, int block_size) {
     
     
-    for (int i = 0; i < m * n; ++i)
-        C_tiled[i] = 0.0f;
+    for (int i = 0; i < m * n; ++i){
+        C_tiled[i] = 0.0f;}
 
     
     for (int block_row_start = 0; block_row_start < m; block_row_start += block_size) {
@@ -81,8 +81,8 @@ void multiplyMatricesTiled(float* A, float* B, float* C_tiled, int m, int n, int
 template<int BM, int BN ,int BK>
 void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int k, double& gflops, double& time_ms){
     for( int i=0;i<m*n;++i){
-        C[i]=0.0
-        C=0.0f;
+        C[i]=0.0;
+        
 
     }
     auto start = high_resolution_clock::now();
@@ -124,7 +124,7 @@ void testBlockSize(int BM, int BN, int BK, double* A, double* B, double* C, int 
 
     for (int iter = 0; iter < 10; ++iter) {
         double gflops, time_ms;
-        multiplyMatricesTiledLoop(A, B, C_tiled, m, n, k, BM, BN, BK, gflops, time_ms);
+        multiplyMatricesTiledTemplated(A, B, C, m, n, k, gflops, time_ms);
         total_gflops += gflops;
         total_time_ms += time_ms;
     }
@@ -251,17 +251,9 @@ int main(int argc, char* argv[]) {
     
     testBlockSize(32, 32, 32, A, B, C, m, n, k, config_to_gflops);
     testBlockSize(64, 64, 64, A, B, C, m, n, k, config_to_gflops);
-
-    for (auto[BM,BN,BK] : configs){
-        double total_gflops = 0.0, total_time_ms = 0.0;
-        for (int iter = 0; iter < 10; ++iter) {
-            double gflops, time_ms;
-            multiplyMatricesTiledTemplated<BM,BN,BK>(A,B,C,m,n,k,gflops,time_ms);
-
      
-
-            total_gflops += gflops;
-            total_time_ms += time_ms;
+    
+           
         }
 
 
