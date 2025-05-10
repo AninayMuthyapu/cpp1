@@ -49,12 +49,12 @@ void multiplyMatricesTiled(float* A, float* B, float* C_tiled, int m, int n, int
     for (int i = 0; i < m * n; ++i)
         C_tiled[i] = 0.0f;
 
-    // Tiled matrix multiplication
+    
     for (int block_row_start = 0; block_row_start < m; block_row_start += block_size) {
         for (int block_col_start = 0; block_col_start < n; block_col_start += block_size) {
             for (int block_inner_start = 0; block_inner_start < k; block_inner_start += block_size) {
 
-                // Process current tile
+                
                 for (int curr_row_A = block_row_start;
                      curr_row_A < block_row_start + block_size && curr_row_A < m;
                      curr_row_A++) {
@@ -81,16 +81,15 @@ void multiplyMatricesTiled(float* A, float* B, float* C_tiled, int m, int n, int
 template<int BM, int BN ,int BK>
 void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int k,double& gflops, double& time_ms){
     for( int i=0;i<m*n;++i){
-        C_tiled[i]=0.0f
+        C[i]=0.0f
     }
     auto start = high_resolution_clock::now();
 
-        //tiled matrix multiplication
+    
     for (int block_row_start = 0; block_row_start < m; block_row_start += BM) {
         for (int block_col_start = 0; block_col_start < n; block_col_start += BN) {
             for (int block_inner_start = 0; block_inner_start < k; block_inner_start += BK {
 
-                // Process current tile
                 for (int curr_row_A = block_row_start;
                      curr_row_A < block_row_start + BM && curr_row_A < m;
                      curr_row_A++) {
@@ -103,7 +102,7 @@ void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int 
                              curr_col_A_or_row_B < block_inner_start + BK && curr_col_A_or_row_B < k;
                              curr_col_A_or_row_B++) {
 
-                            C_tiled[curr_row_A * n + curr_col_B] +=
+                            C[curr_row_A * n + curr_col_B] +=
                                 A[curr_row_A * k + curr_col_A_or_row_B] *
                                 B[curr_col_A_or_row_B * n + curr_col_B];
                         }
@@ -117,6 +116,25 @@ void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int 
     gflops = (2.0 * m * n * k / time_ms) / 1e6;
     
 }
+
+void testBlockSize(int BM, int BN, int BK, double* A, double* B, double* C, int m, int n, int k, unordered_map<string, double>& config_to_gflops) {
+    double total_gflops = 0.0, total_time_ms = 0.0;
+
+    for (int iter = 0; iter < 10; ++iter) {
+        double gflops, time_ms;
+        multiplyMatricesTiledLoop(A, B, C_tiled, m, n, k, BM, BN, BK, gflops, time_ms);
+        total_gflops += gflops;
+        total_time_ms += time_ms;
+    }
+
+    string config_key = to_string(BM) + "x" + to_string(BN) + "x" + to_string(BK);
+    config_to_gflops[config_key] = total_gflops / 10.0;
+
+    cout << "Block Size: " << config_key
+         << ", Avg Time: " << total_time_ms / 10.0 << " ms"
+         << ", Avg GFLOP/s: " << config_to_gflops[config_key] << endl;
+}
+
     
 int main(int argc, char* argv[]) {
     srand(time(0));  
@@ -224,26 +242,13 @@ int main(int argc, char* argv[]) {
     cout << "  Avg Speedup (Tiled vs Seq):    " << avg_tile / avg_seq << "x\n";
     cout << "  Avg Speedup (Tiled vs Parallel):    " << avg_tile / avg_par << "x\n";
 
-    map<string, double> config_to_gflops;
+ 
 
-    for (auto[BM,BN,BK] : configs){
-        double gflops,time_ms=0.0;
-        for (int iter = 0; iter < 10; ++iter) {
-            double gflops, time_ms;
-            multiplyMatricesTiledLoop(A, B, C_tiled, m, n, k, BM, BN, BK, gflops, time_ms);
-            total_gflops += gflops;
-            total_time_ms += time_ms;
-        }
+    unordered_map<string, double> config_to_gflops;
+    
+    testBlockSize(32, 32, 32, A, B, C, m, n, k, config_to_gflops);
+    testBlockSize(64, 64, 64, A, B, C, m, n, k, config_to_gflops);
 
-        double avg_gflops = total_gflops / 10.0;
-        double avg_time_ms = total_time_ms / 10.0;
-
-        string config_key = to_string(BM) + "x" + to_string(BN) + "x" + to_string(BK);
-        config_to_gflops[config_key] = avg_gflops;
-
-        cout << "Block Size: " << config_key
-         << ", Avg Time: " << avg_time_ms << " ms, Avg GFLOP/s: " << avg_gflops << endl;
-    }
 
     string best_config = "";
     double best_gflops = 0.0;
