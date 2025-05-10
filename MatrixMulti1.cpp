@@ -124,7 +124,7 @@ void testBlockSize(int BM, int BN, int BK, double* A, double* B, double* C, int 
 
     for (int iter = 0; iter < 10; ++iter) {
         double gflops, time_ms;
-        multiplyMatricesTiledTemplated(A, B, C, m, n, k, gflops, time_ms);
+        multiplyMatricesTiledTemplated<BM,BN,BK>(A, B, C, m, n, k, gflops, time_ms);
         total_gflops += gflops;
         total_time_ms += time_ms;
     }
@@ -254,7 +254,7 @@ int main(int argc, char* argv[]) {
      
     
            
-        }
+        
 
 
 
