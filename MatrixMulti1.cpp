@@ -126,11 +126,9 @@ void testBlockSize(float* A, float* B, float* C, int m, int n, int k, int iterat
 
     for (int iter = 0; iter < 10; ++iter) {
         double gflops, time_ms;
-<<<<<<< HEAD
         multiplyMatricesTiledTemplated<BM, BN, BK>(A, B, C, m, n, k, gflops, time_ms);
-=======
-        multiplyMatricesTiledTemplated<BM,BN,BK>(A, B, C, m, n, k, gflops, time_ms);
->>>>>>> a63745e5127e42e5cca9c19f5822c48f9d486e06
+
+        multiplyMatricesTiledTemplated<BM,BN,BK>(A, B, C, m, n, k, gflops, time_ms);  
         total_gflops += gflops;
         total_time_ms += time_ms;
     }
@@ -260,39 +258,17 @@ int main(int argc, char* argv[]) {
     int idx = 0;
     float results[10][4]; 
 
-    testBlockSize<32, 32, 32>(A, B, C, m, n, k, iterations, results, idx);
-    testBlockSize<64, 64, 64>(A, B, C, m, n, k, iterations, results, idx);
-
-<<<<<<< HEAD
+    testBlockSize<32, 32, 32>(A, B, C, m, n, k,itr, results, idx);
+    testBlockSize<64, 64, 64>(A, B, C, m, n, k, itr, results, idx);
     float best_gflops = 0.0f;
     int best_idx = -1;
     for (int i = 0; i < idx; ++i) {
         if (results[i][3] > best_gflops) {
              best_gflops = results[i][3];
              best_idx = i;
-        }
-=======
-    unordered_map<string, double> config_to_gflops;
+     }   }
+
     
-    testBlockSize(32, 32, 32, A, B, C, m, n, k, config_to_gflops);
-    testBlockSize(64, 64, 64, A, B, C, m, n, k, config_to_gflops);
-     
-    
-           
-        
-
-
-
-    string best_config = "";
-    double best_gflops = 0.0;
-
-    for (const auto& entry : config_to_gflops) {
-        if (entry.second > best_gflops) {
-            best_gflops = entry.second;
-            best_config = entry.first;
-        }   
->>>>>>> a63745e5127e42e5cca9c19f5822c48f9d486e06
-    }
 
     if (best_idx != -1) {
         printf("\nBest Configuration: %dx%dx%d with GFLOP/s: %.3f\n",
