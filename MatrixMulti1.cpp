@@ -79,16 +79,20 @@ void multiplyMatricesTiled(float* A, float* B, float* C_tiled, int m, int n, int
 }   
 
 template<int BM, int BN ,int BK>
-void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int k,double& gflops, double& time_ms){
+void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int k, double& gflops, double& time_ms){
     for( int i=0;i<m*n;++i){
+<<<<<<< HEAD
         C[i]=0.0f
+=======
+        C=0.0f;
+>>>>>>> e3e4ec75527f9b3bff6e13416163fb2bc832a05c
     }
     auto start = high_resolution_clock::now();
 
     
     for (int block_row_start = 0; block_row_start < m; block_row_start += BM) {
         for (int block_col_start = 0; block_col_start < n; block_col_start += BN) {
-            for (int block_inner_start = 0; block_inner_start < k; block_inner_start += BK {
+            for (int block_inner_start = 0; block_inner_start < k; block_inner_start += BK) {
 
                 for (int curr_row_A = block_row_start;
                      curr_row_A < block_row_start + BM && curr_row_A < m;
@@ -244,10 +248,24 @@ int main(int argc, char* argv[]) {
 
  
 
+
     unordered_map<string, double> config_to_gflops;
     
     testBlockSize(32, 32, 32, A, B, C, m, n, k, config_to_gflops);
     testBlockSize(64, 64, 64, A, B, C, m, n, k, config_to_gflops);
+
+    for (auto[BM,BN,BK] : configs){
+        double total_gflops = 0.0, total_time_ms = 0.0;
+        for (int iter = 0; iter < 10; ++iter) {
+            double gflops, time_ms;
+            multiplyMatricesTiledTemplated<BM,BN,BK>(A,B,C,m,n,k,gflops,time_ms);
+
+     
+
+            total_gflops += gflops;
+            total_time_ms += time_ms;
+        }
+
 
 
     string best_config = "";
