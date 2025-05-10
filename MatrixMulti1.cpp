@@ -79,16 +79,16 @@ void multiplyMatricesTiled(float* A, float* B, float* C_tiled, int m, int n, int
 }   
 
 template<int BM, int BN ,int BK>
-void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int k,double& gflops, double& time_ms){
+void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int k, int BM, int BN, int BK, double& gflops, double& time_ms){
     for( int i=0;i<m*n;++i){
-        C_tiled[i]=0.0f
+        C=0.0f;
     }
     auto start = high_resolution_clock::now();
 
         //tiled matrix multiplication
     for (int block_row_start = 0; block_row_start < m; block_row_start += BM) {
         for (int block_col_start = 0; block_col_start < n; block_col_start += BN) {
-            for (int block_inner_start = 0; block_inner_start < k; block_inner_start += BK {
+            for (int block_inner_start = 0; block_inner_start < k; block_inner_start += BK) {
 
                 // Process current tile
                 for (int curr_row_A = block_row_start;
@@ -103,7 +103,7 @@ void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int 
                              curr_col_A_or_row_B < block_inner_start + BK && curr_col_A_or_row_B < k;
                              curr_col_A_or_row_B++) {
 
-                            C_tiled[curr_row_A * n + curr_col_B] +=
+                            C[curr_row_A * n + curr_col_B] +=
                                 A[curr_row_A * k + curr_col_A_or_row_B] *
                                 B[curr_col_A_or_row_B * n + curr_col_B];
                         }
@@ -227,10 +227,11 @@ int main(int argc, char* argv[]) {
     map<string, double> config_to_gflops;
 
     for (auto[BM,BN,BK] : configs){
-        double gflops,time_ms=0.0;
+        double total_gflops = 0.0, total_time_ms = 0.0;
         for (int iter = 0; iter < 10; ++iter) {
             double gflops, time_ms;
-            multiplyMatricesTiledLoop(A, B, C_tiled, m, n, k, BM, BN, BK, gflops, time_ms);
+            multiplyMatricesTiledTemplated<BM,BN,BK>(A, B, C_tiled, m, n, k, BM, BN, BK, gflops, time_ms);
+           
             total_gflops += gflops;
             total_time_ms += time_ms;
         }
