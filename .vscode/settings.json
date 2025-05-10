@@ -1,3 +1,4 @@
 {
-    "cmake.sourceDirectory": "C:/cpp1/AnyOption"
+    "cmake.sourceDirectory": "C:/cpp1/AnyOption",
+    "C_Cpp.errorSquiggles": "disabled"
 }

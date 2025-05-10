@@ -7,11 +7,12 @@
 #include <chrono>
 #include <vector>
 #include <numeric>
+#include <map> 
 
 using namespace std;
 using namespace std::chrono;
 
-// Function to compare two float matrices within tolerance
+
 bool compareMatrices(const float* A, const float* B, int size, float epsilon = 1e-5) {
     for (int i = 0; i < size; ++i) {
         if (fabs(A[i] - B[i]) > epsilon) {
@@ -43,7 +44,8 @@ void multiplyMatricesOMP(float* A, float* B, float* C_omp, int m, int n, int k) 
 }
 
 void multiplyMatricesTiled(float* A, float* B, float* C_tiled, int m, int n, int k, int block_size) {
-    // Initialize result matrix to zero
+    
+    
     for (int i = 0; i < m * n; ++i)
         C_tiled[i] = 0.0f;
 
@@ -75,6 +77,46 @@ void multiplyMatricesTiled(float* A, float* B, float* C_tiled, int m, int n, int
         }
     }   
 }   
+
+template<int BM, int BN ,int BK>
+void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int k,double& gflops, double& time_ms){
+    for( int i=0;i<m*n;++i){
+        C_tiled[i]=0.0f
+    }
+    auto start = high_resolution_clock::now();
+
+        //tiled matrix multiplication
+    for (int block_row_start = 0; block_row_start < m; block_row_start += BM) {
+        for (int block_col_start = 0; block_col_start < n; block_col_start += BN) {
+            for (int block_inner_start = 0; block_inner_start < k; block_inner_start += BK {
+
+                // Process current tile
+                for (int curr_row_A = block_row_start;
+                     curr_row_A < block_row_start + BM && curr_row_A < m;
+                     curr_row_A++) {
+
+                    for (int curr_col_B = block_col_start;
+                         curr_col_B < block_col_start + BN && curr_col_B < n;
+                         curr_col_B++) {
+
+                        for (int curr_col_A_or_row_B = block_inner_start;
+                             curr_col_A_or_row_B < block_inner_start + BK && curr_col_A_or_row_B < k;
+                             curr_col_A_or_row_B++) {
+
+                            C_tiled[curr_row_A * n + curr_col_B] +=
+                                A[curr_row_A * k + curr_col_A_or_row_B] *
+                                B[curr_col_A_or_row_B * n + curr_col_B];
+                        }
+                    }
+                }
+            }
+        }
+    }  
+    auto end = high_resolution_clock::now();
+    time_ms = duration<double, milli>(end - start).count();
+    gflops = (2.0 * m * n * k / time_ms) / 1e6;
+    
+}
     
 int main(int argc, char* argv[]) {
     srand(time(0));  
@@ -102,6 +144,10 @@ int main(int argc, char* argv[]) {
 
     const double total_flops = 2*m*n*k;
     vector<double> seq_gflops, par_gflops,tile_gflops;
+    vector<tuple<int,int,int>> configs={
+        {32, 32, 32}, {64, 64, 32}, {128, 128, 32},
+        {256, 256, 32}, {256, 128, 32}, {128, 256, 32}
+    };
 
     float* A = new float[m * k];
     float* B = new float[k * n];
@@ -177,6 +223,39 @@ int main(int argc, char* argv[]) {
     cout << "  Avg Speedup (Parallel vs Seq): " << avg_par / avg_seq << "x\n";
     cout << "  Avg Speedup (Tiled vs Seq):    " << avg_tile / avg_seq << "x\n";
     cout << "  Avg Speedup (Tiled vs Parallel):    " << avg_tile / avg_par << "x\n";
+
+    map<string, double> config_to_gflops;
+
+    for (auto[BM,BN,BK] : configs){
+        double gflops,time_ms=0.0;
+        for (int iter = 0; iter < 10; ++iter) {
+            double gflops, time_ms;
+            multiplyMatricesTiledLoop(A, B, C_tiled, m, n, k, BM, BN, BK, gflops, time_ms);
+            total_gflops += gflops;
+            total_time_ms += time_ms;
+        }
+
+        double avg_gflops = total_gflops / 10.0;
+        double avg_time_ms = total_time_ms / 10.0;
+
+        string config_key = to_string(BM) + "x" + to_string(BN) + "x" + to_string(BK);
+        config_to_gflops[config_key] = avg_gflops;
+
+        cout << "Block Size: " << config_key
+         << ", Avg Time: " << avg_time_ms << " ms, Avg GFLOP/s: " << avg_gflops << endl;
+    }
+
+    string best_config = "";
+    double best_gflops = 0.0;
+
+    for (const auto& entry : config_to_gflops) {
+        if (entry.second > best_gflops) {
+            best_gflops = entry.second;
+            best_config = entry.first;
+        }   
+    }
+
+    cout << "\nBest Configuration: " << best_config << " with GFLOP/s: " << best_gflops << endl;
 
 
     delete[] A;
