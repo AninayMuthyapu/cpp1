@@ -8,7 +8,7 @@
 #include <vector>
 #include <numeric>
 #include <map> 
-
+#include <unordered_map>
 using namespace std;
 using namespace std::chrono;
 
@@ -46,8 +46,8 @@ void multiplyMatricesOMP(float* A, float* B, float* C_omp, int m, int n, int k) 
 void multiplyMatricesTiled(float* A, float* B, float* C_tiled, int m, int n, int k, int block_size) {
     
     
-    for (int i = 0; i < m * n; ++i)
-        C_tiled[i] = 0.0f;
+    for (int i = 0; i < m * n; ++i){
+        C_tiled[i] = 0.0f;}
 
     
     for (int block_row_start = 0; block_row_start < m; block_row_start += block_size) {
@@ -81,11 +81,9 @@ void multiplyMatricesTiled(float* A, float* B, float* C_tiled, int m, int n, int
 template<int BM, int BN ,int BK>
 void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int k, double& gflops, double& time_ms){
     for( int i=0;i<m*n;++i){
-<<<<<<< HEAD
-        C[i]=0.0f
-=======
-        C=0.0f;
->>>>>>> e3e4ec75527f9b3bff6e13416163fb2bc832a05c
+        C[i]=0.0;
+        
+
     }
     auto start = high_resolution_clock::now();
 
@@ -121,23 +119,32 @@ void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int 
     
 }
 
-void testBlockSize(int BM, int BN, int BK, double* A, double* B, double* C, int m, int n, int k, unordered_map<string, double>& config_to_gflops) {
+
+template<int BM, int BN, int BK>
+void testBlockSize(float* A, float* B, float* C, int m, int n, int k, int iterations,float results[][4], int& idx) {
     double total_gflops = 0.0, total_time_ms = 0.0;
 
     for (int iter = 0; iter < 10; ++iter) {
         double gflops, time_ms;
-        multiplyMatricesTiledLoop(A, B, C_tiled, m, n, k, BM, BN, BK, gflops, time_ms);
+        multiplyMatricesTiledTemplated<BM, BN, BK>(A, B, C, m, n, k, gflops, time_ms);
         total_gflops += gflops;
         total_time_ms += time_ms;
     }
 
-    string config_key = to_string(BM) + "x" + to_string(BN) + "x" + to_string(BK);
-    config_to_gflops[config_key] = total_gflops / 10.0;
+    float avg_gflops = total_gflops / 10.0;
+    float avg_time = total_time_ms / 10.0;
 
-    cout << "Block Size: " << config_key
-         << ", Avg Time: " << total_time_ms / 10.0 << " ms"
-         << ", Avg GFLOP/s: " << config_to_gflops[config_key] << endl;
+   
+    results[idx][0] = BM;
+    results[idx][1] = BN;
+    results[idx][2] = BK;
+    results[idx][3] = avg_gflops;
+    idx++;
+
+    printf("Block Size: %dx%dx%d, Avg Time: %.3f ms, Avg GFLOP/s: %.3f\n", BM, BN, BK, avg_time, avg_gflops);
 }
+
+
 
     
 int main(int argc, char* argv[]) {
@@ -246,40 +253,25 @@ int main(int argc, char* argv[]) {
     cout << "  Avg Speedup (Tiled vs Seq):    " << avg_tile / avg_seq << "x\n";
     cout << "  Avg Speedup (Tiled vs Parallel):    " << avg_tile / avg_par << "x\n";
 
- 
+    int idx = 0;
+    float results[10][4]; 
 
+    testBlockSize<32, 32, 32>(A, B, C, m, n, k, iterations, results, idx);
+    testBlockSize<64, 64, 64>(A, B, C, m, n, k, iterations, results, idx);
 
-    unordered_map<string, double> config_to_gflops;
-    
-    testBlockSize(32, 32, 32, A, B, C, m, n, k, config_to_gflops);
-    testBlockSize(64, 64, 64, A, B, C, m, n, k, config_to_gflops);
-
-    for (auto[BM,BN,BK] : configs){
-        double total_gflops = 0.0, total_time_ms = 0.0;
-        for (int iter = 0; iter < 10; ++iter) {
-            double gflops, time_ms;
-            multiplyMatricesTiledTemplated<BM,BN,BK>(A,B,C,m,n,k,gflops,time_ms);
-
-     
-
-            total_gflops += gflops;
-            total_time_ms += time_ms;
+    float best_gflops = 0.0f;
+    int best_idx = -1;
+    for (int i = 0; i < idx; ++i) {
+        if (results[i][3] > best_gflops) {
+             best_gflops = results[i][3];
+             best_idx = i;
         }
-
-
-
-    string best_config = "";
-    double best_gflops = 0.0;
-
-    for (const auto& entry : config_to_gflops) {
-        if (entry.second > best_gflops) {
-            best_gflops = entry.second;
-            best_config = entry.first;
-        }   
     }
 
-    cout << "\nBest Configuration: " << best_config << " with GFLOP/s: " << best_gflops << endl;
-
+    if (best_idx != -1) {
+        printf("\nBest Configuration: %dx%dx%d with GFLOP/s: %.3f\n",
+           (int)results[best_idx][0], (int)results[best_idx][1], (int)results[best_idx][2], best_gflops);
+        }
 
     delete[] A;
     delete[] B;
