@@ -173,7 +173,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Iterations: " << itr  << std::endl;
     std::cout << "Tile Size: " << block_size << std::endl;
 
-    const double total_flops = 2*m*n*k;
+//    const double total_flops = 2*m*n*k;
     vector<double> seq_gflops, par_gflops,tile_gflops;
     vector<tuple<int,int,int>> configs={
         {32, 32, 32}, {64, 64, 32}, {128, 128, 32},
@@ -183,8 +183,8 @@ int main(int argc, char* argv[]) {
     float* A = new float[m * k];
     float* B = new float[k * n];
     float* C = new float[m * n];
-    float* C_omp = new float[m * n];    
-    float* C_tiled = new float[m * n];
+//    float* C_omp = new float[m * n];    
+//    float* C_tiled = new float[m * n];
 
     
     for (int i = 0; i < m * k; ++i)
@@ -193,73 +193,79 @@ int main(int argc, char* argv[]) {
         B[i] = static_cast<float>(rand()) / RAND_MAX;
 
     
-    multiplyMatrices(A, B, C, m, n, k);
+//    multiplyMatrices(A, B, C, m, n, k);
 
-    multiplyMatricesOMP(A, B, C_omp, m, n, k);
-    multiplyMatricesTiled(A, B, C_tiled, m, n, k, block_size);
+  //  multiplyMatricesOMP(A, B, C_omp, m, n, k);
+   // multiplyMatricesTiled(A, B, C_tiled, m, n, k, block_size);
 
     
-    bool seq_par = compareMatrices(C, C_omp, m * n);
-    bool seq_tile = compareMatrices(C, C_tiled, m * n);
-    bool par_tile = compareMatrices(C_omp, C_tiled, m * n);
+   // bool seq_par = compareMatrices(C, C_omp, m * n);
+   // bool seq_tile = compareMatrices(C, C_tiled, m * n);
+   // bool par_tile = compareMatrices(C_omp, C_tiled, m * n);
 
-    std::cout << "Validation Results:" << std::endl;
-    std::cout << " Sequential vs OpenMP: " << (seq_par ? "Match" : "Mismatch") << std::endl;
-    std::cout << " Sequential vs Tiled:  " << (seq_tile ? "Match" : "Mismatch") << std::endl;
-    std::cout << " OpenMP vs Tiled:      " << (par_tile ? "Match" : "Mismatch") << std::endl;
+   // std::cout << "Validation Results:" << std::endl;
+   // std::cout << " Sequential vs OpenMP: " << (seq_par ? "Match" : "Mismatch") << std::endl;
+   // std::cout << " Sequential vs Tiled:  " << (seq_tile ? "Match" : "Mismatch") << std::endl;
+   // std::cout << " OpenMP vs Tiled:      " << (par_tile ? "Match" : "Mismatch") << std::endl;
 
-    double total_time_base = 0;
-    for (int i = 0; i < itr; ++i) {
-        auto start = high_resolution_clock::now();
-        multiplyMatrices(A, B, C, m, n, k);
-        auto end = high_resolution_clock::now();
-        double elapsed = duration<double, milli>(end - start).count();
-        total_time_base += elapsed;
-        seq_gflops.push_back((total_flops / elapsed) / 1e6); 
-    }
+   // double total_time_base = 0;
+   // for (int i = 0; i < itr; ++i) {
+   //    auto start = high_resolution_clock::now();
+   //     multiplyMatrices(A, B, C, m, n, k);
+   //    auto end = high_resolution_clock::now();
+   //     double elapsed = duration<double, milli>(end - start).count();
+   //     total_time_base += elapsed;
+   //     seq_gflops.push_back((total_flops / elapsed) / 1e6); 
+   // }
 
-    double total_time_omp = 0;
-    for (int i = 0; i < itr; ++i) {
-        auto start = high_resolution_clock::now();
-        multiplyMatricesOMP(A, B, C_omp, m, n, k);
-        auto end = high_resolution_clock::now();
-        double elapsed = duration<double, milli>(end - start).count();
-        total_time_omp += elapsed;
-        par_gflops.push_back((total_flops / elapsed) / 1e6);
-    }
+   // double total_time_omp = 0;
+   // for (int i = 0; i < itr; ++i) {
+   //     auto start = high_resolution_clock::now();
+   //     multiplyMatricesOMP(A, B, C_omp, m, n, k);
+   //     auto end = high_resolution_clock::now();
+   //     double elapsed = duration<double, milli>(end - start).count();
+   //     total_time_omp += elapsed;
+   //     par_gflops.push_back((total_flops / elapsed) / 1e6);
+   // }
 
-    double  total_time_tile = 0;
-    for (int i = 0; i < itr; ++i) {
-        auto start = high_resolution_clock::now();
-        multiplyMatricesTiled(A, B, C_tiled, m, n, k, block_size);
-        auto end = high_resolution_clock::now();
-        double elapsed = duration<double, milli>(end - start).count();
-        total_time_tile += elapsed;
-        tile_gflops.push_back((total_flops / elapsed) / 1e6);
-    }
+   // double  total_time_tile = 0;
+   // for (int i = 0; i < itr; ++i) {
+   //     auto start = high_resolution_clock::now();
+   //     multiplyMatricesTiled(A, B, C_tiled, m, n, k, block_size);
+   //     auto end = high_resolution_clock::now();
+   //     double elapsed = duration<double, milli>(end - start).count();
+   //     total_time_tile += elapsed;
+   //     tile_gflops.push_back((total_flops / elapsed) / 1e6);
+   // }
 
-    cout << "Average time (baseline): " << total_time_base / itr << " ms" << endl;
-    cout << "Average time (OpenMP):   " << total_time_omp / itr << " ms" << endl;
-    cout << "Average time (Tiled):    " << total_time_tile / itr << " ms" << endl;
+   // cout << "Average time (baseline): " << total_time_base / itr << " ms" << endl;
+   // cout << "Average time (OpenMP):   " << total_time_omp / itr << " ms" << endl;
+   // cout << "Average time (Tiled):    " << total_time_tile / itr << " ms" << endl;
 
-    double avg_seq = accumulate(seq_gflops.begin(), seq_gflops.end(), 0.0) / itr;
-    double avg_par = accumulate(par_gflops.begin(), par_gflops.end(), 0.0) / itr;
-    double avg_tile = accumulate(tile_gflops.begin(), tile_gflops.end(), 0.0) / itr;
+   // double avg_seq = accumulate(seq_gflops.begin(), seq_gflops.end(), 0.0) / itr;
+   // double avg_par = accumulate(par_gflops.begin(), par_gflops.end(), 0.0) / itr;
+   // double avg_tile = accumulate(tile_gflops.begin(), tile_gflops.end(), 0.0) / itr;
     
 
-    cout << "Averages after " << itr << " iterations:\n";
-    cout << "  Sequential: " << avg_seq << " GFLOP/s\n";
-    cout << "  Parallel:   " << avg_par << " GFLOP/s\n";
-    cout << "  Tiled:      " << avg_tile << " GFLOP/s\n";
-    cout << "  Avg Speedup (Parallel vs Seq): " << avg_par / avg_seq << "x\n";
-    cout << "  Avg Speedup (Tiled vs Seq):    " << avg_tile / avg_seq << "x\n";
-    cout << "  Avg Speedup (Tiled vs Parallel):    " << avg_tile / avg_par << "x\n";
+   // cout << "Averages after " << itr << " iterations:\n";
+   // cout << "  Sequential: " << avg_seq << " GFLOP/s\n";
+   // cout << "  Parallel:   " << avg_par << " GFLOP/s\n";
+   // cout << "  Tiled:      " << avg_tile << " GFLOP/s\n";
+   // cout << "  Avg Speedup (Parallel vs Seq): " << avg_par / avg_seq << "x\n";
+   // cout << "  Avg Speedup (Tiled vs Seq):    " << avg_tile / avg_seq << "x\n";
+   // cout << "  Avg Speedup (Tiled vs Parallel):    " << avg_tile / avg_par << "x\n";
 
     int idx = 0;
     float results[10][4]; 
+ 
 
     testBlockSize<32, 32, 32>(A, B, C, m, n, k,itr, results, idx);
-    testBlockSize<64, 64, 64>(A, B, C, m, n, k, itr, results, idx);
+    testBlockSize<256, 256, 32>(A, B, C, m, n, k, itr, results, idx);
+    testBlockSize<64, 64, 32>(A, B, C, m, n, k, itr, results, idx);
+    testBlockSize<128, 128, 32>(A, B, C, m, n, k, itr, results, idx);
+    testBlockSize<256, 128, 32>(A, B, C, m, n, k, itr, results, idx);
+    testBlockSize<128, 256, 32>(A, B, C, m, n, k, itr, results, idx);
+
     float best_gflops = 0.0f;
     int best_idx = -1;
     for (int i = 0; i < idx; ++i) {
@@ -272,8 +278,8 @@ int main(int argc, char* argv[]) {
 
     if (best_idx != -1) {
         printf("\nBest Configuration: %dx%dx%d with GFLOP/s: %.3f\n",
-           (int)results[best_idx][0], (int)results[best_idx][1], (int)results[best_idx][2], best_gflops);
-        }
+           (int)results[best_idx][0], (int)results[best_idx][1], (int)results[best_idx][2], best_gflops); 
+    }
 
     delete[] A;
     delete[] B;
