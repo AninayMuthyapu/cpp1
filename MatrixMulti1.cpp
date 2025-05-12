@@ -194,6 +194,7 @@ void testBlockSize(float* A, float* B, float* C, int m, int n, int k, int iterat
 
 template<int IT_M, int IT_N ,int IT_K>
 void testBlockSize2(float* A, float* B, float* C, int m, int n, int k, int iterations,float results1[][4], int& idx) {
+   
     double total_gflops = 0.0, total_time_ms = 0.0;
 
     for (int iter = 0; iter < 10; ++iter) {
@@ -325,34 +326,34 @@ int main(int argc, char* argv[]) {
    // cout << "  Avg Speedup (Tiled vs Parallel):    " << avg_tile / avg_par << "x\n";
 
     int idx = 0;
-    float results[10][4]; 
-    float
+//    float results[10][4]; 
+//    float
  
 
-    testBlockSize<32, 32, 32>(A, B, C, m, n, k,itr, results, idx);
-    testBlockSize<256, 256, 32>(A, B, C, m, n, k, itr, results, idx);
-    testBlockSize<64, 64, 32>(A, B, C, m, n, k, itr, results, idx);
-    testBlockSize<128, 128, 32>(A, B, C, m, n, k, itr, results, idx);
-    testBlockSize<256, 128, 32>(A, B, C, m, n, k, itr, results, idx);
-    testBlockSize<128, 256, 32>(A, B, C, m, n, k, itr, results, idx);
+//    testBlockSize<32, 32, 32>(A, B, C, m, n, k,itr, results, idx);
+//    testBlockSize<256, 256, 32>(A, B, C, m, n, k, itr, results, idx);
+//    testBlockSize<64, 64, 32>(A, B, C, m, n, k, itr, results, idx);
+//    testBlockSize<128, 128, 32>(A, B, C, m, n, k, itr, results, idx);
+//    testBlockSize<256, 128, 32>(A, B, C, m, n, k, itr, results, idx);
+//    testBlockSize<128, 256, 32>(A, B, C, m, n, k, itr, results, idx);
     testBlockSize2<8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
     testBlockSize2<8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
     testBlockSize2<4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
 
-    float best_gflops = 0.0f;
-    int best_idx = -1;
-    for (int i = 0; i < idx; ++i) {
-        if (results[i][3] > best_gflops) {
-             best_gflops = results[i][3];
-             best_idx = i;
-     }   }
+//    float best_gflops = 0.0f;
+//    int best_idx = -1;
+//    for (int i = 0; i < idx; ++i) {
+//        if (results[i][3] > best_gflops) {
+//             best_gflops = results[i][3];
+//             best_idx = i;
+//     }   }
 
     
-
-    if (best_idx != -1) {
-        printf("\nBest Configuration: %dx%dx%d with GFLOP/s: %.3f\n",
-           (int)results[best_idx][0], (int)results[best_idx][1], (int)results[best_idx][2], best_gflops); 
-    }
+//
+//    if (best_idx != -1) {
+//        printf("\nBest Configuration: %dx%dx%d with GFLOP/s: %.3f\n",
+//           (int)results[best_idx][0], (int)results[best_idx][1], (int)results[best_idx][2], best_gflops); 
+//    }
 
 
     float best_gflops1 = 0.0f;
