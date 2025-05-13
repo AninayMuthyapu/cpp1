@@ -119,49 +119,56 @@ void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int 
     
 }
 
-template<int IT_M, int IT_N ,int IT_K>
-void multiplyMatricesTiledTemplated2(float* A,float* B,float* C ,int m,int n,int k, double& gflops, double& time_ms){
-    for( int i=0;i<m*n;++i){
+template <int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
+void compute_matrix_multi(float* A, const float* B, const float* C, int m, int n, int k,double& gflops, double& time_ms) {
+
+    for( int i=0;i<n*m;++i){
         C[i]=0.0;
         
 
     }
     auto start = high_resolution_clock::now();
 
-    #pragma unroll 
-    for (int block_row_start = 0; block_row_start < m; block_row_start += IT_M) {
-        #pragma unroll 
-        for (int block_col_start = 0; block_col_start < n; block_col_start += IT_N) {
-            #pragma unroll 
+    for (int m1 = 0; m < m; m += BM) {
+        for (int n1 = 0; n < n; n += BN) {
+            for (int k1 = 0; k < k; k += BK) {
 
-            for (int block_inner_start = 0; block_inner_start < k; block_inner_start += IT_K) {
+                
+                for (int i = 0; i < BM; i += IT_M) {
+                    for (int j = 0; j < BN; j += IT_N) {
+                        for (int p = 0; p < BK; p += IT_K) {
 
-                for (int curr_row_A = block_row_start;
-                     curr_row_A < block_row_start + IT_M && curr_row_A < m;
-                     curr_row_A++) {
+                            #pragma unroll
+                            for (int ii = 0; ii < IT_M; ++ii) {
+                                #pragma unroll
+                                for (int jj = 0; jj < IT_N; ++jj) {
+                                    #pragma unroll
+                                    for (int pp = 0; pp < IT_K; ++pp) {
 
-                    for (int curr_col_B = block_col_start;
-                         curr_col_B < block_col_start + IT_N && curr_col_B < n;
-                         curr_col_B++) {
+                                        int row = m1 + i + ii;
+                                        int col = n1 + j + jj;
+                                        int depth = k1 + p + pp;
 
-                        for (int curr_col_A_or_row_B = block_inner_start;
-                             curr_col_A_or_row_B < block_inner_start + IT_K && curr_col_A_or_row_B < k;
-                             curr_col_A_or_row_B++) {
+                                        if (row < m && col < n && depth < k) {
+                                            C[row * n + col] +=
+                                                A[row * k + depth] *
+                                                B[depth * n + col];
+                                        }
+                                    }
+                                }
+                            }
 
-                            C[curr_row_A * n + curr_col_B] +=
-                                A[curr_row_A * k + curr_col_A_or_row_B] *
-                                B[curr_col_A_or_row_B * n + curr_col_B];
                         }
                     }
                 }
+
             }
         }
-    }  
+    }
     auto end = high_resolution_clock::now();
     time_ms = duration<double, milli>(end - start).count();
     gflops = (2.0 * m * n * k / time_ms) / 1e6;
-    
-}
+}                     
 
 
 template<int BM, int BN, int BK>
@@ -191,34 +198,35 @@ void testBlockSize(float* A, float* B, float* C, int m, int n, int k, int iterat
     printf("Block Size: %dx%dx%d, Avg Time: %.3f ms, Avg GFLOP/s: %.3f\n", BM, BN, BK, avg_time, avg_gflops);
    
 }
-
-template<int IT_M, int IT_N ,int IT_K>
-void testBlockSize2(float* A, float* B, float* C, int m, int n, int k, int iterations,float results1[][4], int& idx) {
-   
+template<int BM, int BN, int BK, int IT_M, int IT_N ,int IT_K>
+void testBlockSize2(float* A, float* B, float* C, int M, int N, int K, int iterations, float results1[][7], int& idx) {
     double total_gflops = 0.0, total_time_ms = 0.0;
 
-    for (int iter = 0; iter < 10; ++iter) {
+    for (int iter = 0; iter < iterations; ++iter) {
         double gflops, time_ms;
-        multiplyMatricesTiledTemplated2<IT_M, IT_N, IT_K>(A, B, C, m, n, k, gflops, time_ms);
+        compute_matrix_multi<BM, BN, BK, IT_M, IT_N, IT_K>(A, B, C, M, N, K, gflops, time_ms);
 
-        
         total_gflops += gflops;
         total_time_ms += time_ms;
     }
 
-    float avg_gflops = total_gflops / 10.0;
-    float avg_time = total_time_ms / 10.0;
+    float avg_gflops = total_gflops / iterations;
+    float avg_time = total_time_ms / iterations;
 
-   
-    results1[idx][0] = IT_M;
-    results1[idx][1] = IT_N;
-    results1[idx][2] = IT_K;
-    results1[idx][3] = avg_gflops;
+    // Save all parameters + GFLOPs
+    results1[idx][0] = BM;
+    results1[idx][1] = BN;
+    results1[idx][2] = BK;
+    results1[idx][3] = IT_M;
+    results1[idx][4] = IT_N;
+    results1[idx][5] = IT_K;
+    results1[idx][6] = avg_gflops;
     idx++;
 
-    printf("Block Size: %dx%dx%d, Avg Time: %.3f ms, Avg GFLOP/s: %.3f\n", IT_M, IT_N, IT_K, avg_time, avg_gflops);
-   
+    printf("Config BMxBNxBK = %dx%dx%d | IT_MxN_K = %dx%dx%d | Time: %.3f ms | Avg GFLOP/s: %.3f\n",
+           BM, BN, BK, IT_M, IT_N, IT_K, avg_time, avg_gflops);
 }
+
 
 
     
@@ -248,7 +256,7 @@ int main(int argc, char* argv[]) {
 
 //    const double total_flops = 2*m*n*k;
     vector<double> seq_gflops, par_gflops,tile_gflops;
-    float results1[10][4];
+    float results1[10][7];
 
     float* A = new float[m * k];
     float* B = new float[k * n];
@@ -336,9 +344,34 @@ int main(int argc, char* argv[]) {
 //    testBlockSize<128, 128, 32>(A, B, C, m, n, k, itr, results, idx);
 //    testBlockSize<256, 128, 32>(A, B, C, m, n, k, itr, results, idx);
 //    testBlockSize<128, 256, 32>(A, B, C, m, n, k, itr, results, idx);
-    testBlockSize2<8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
-    testBlockSize2<8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
-    testBlockSize2<4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize2<32,32,32,8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize2<32,32,32,8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize2<32,32,32,8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+
+
+    testBlockSize2<64, 64, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize2<64, 64, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize2<64, 64, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
+
+
+    testBlockSize2<128, 128, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize2<128, 128, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize2<128, 128, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
+
+
+    testBlockSize2<256, 256, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx); 
+    testBlockSize2<256, 256, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize2<256, 256, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
+
+
+    testBlockSize2<256, 128, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize2<256, 128, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize2<256, 128, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
+
+
+   testBlockSize2<128, 256, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
+   testBlockSize2<128, 256, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+   testBlockSize2<128, 256, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
 
 //    float best_gflops = 0.0f;
 //    int best_idx = -1;
@@ -356,21 +389,24 @@ int main(int argc, char* argv[]) {
 //    }
 
 
-    float best_gflops1 = 0.0f;
-    int best_idx1 = -1;
-    for (int i = 0; i < idx; ++i) {
-        if (results1[i][3] > best_gflops1) {
-             best_gflops1 = results1[i][3];
-             best_idx1 = i;
-     }   }
+    float best_gflops1 = 0.0;
+int best_idx1 = -1;
+
+for (int i = 0; i < idx; ++i) {
+    if (results1[i][6] > best_gflops1) {
+        best_gflops1 = results1[i][6];
+        best_idx1 = i;
+    }
+}
+
+if (best_idx1 != -1) {
+    printf("\nBest Configuration: %dx%dx%d with IT=%dx%dx%d and GFLOP/s: %.3f\n",
+       (int)results1[best_idx1][0], (int)results1[best_idx1][1], (int)results1[best_idx1][2],
+       (int)results1[best_idx1][4], (int)results1[best_idx1][5], (int)results1[best_idx1][6],
+       results1[best_idx1][3]);
 
     
-
-    if (best_idx1 != -1) {
-        printf("\nBest Configuration: %dx%dx%d with GFLOP/s: %.3f\n",
-           (int)results1[best_idx1][0], (int)results1[best_idx1][1], (int)results1[best_idx1][2], best_gflops1); 
-    }
-
+}
 
     delete[] A;
     delete[] B;
