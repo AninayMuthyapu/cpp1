@@ -120,55 +120,35 @@ void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int 
 }
 
 template <int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
-void compute_matrix_multi(float* A, const float* B, const float* C, int m, int n, int k,double& gflops, double& time_ms) {
-
-    for( int i=0;i<n*m;++i){
-        C[i]=0.0;
-        
-
-    }
+void compute_matrix_multi(float* A, const float* B, float* C, int M, int N, int K, double& gflops, double& time_ms) {
+    for (int i = 0; i < M * N; ++i) C[i] = 0.0f;
     auto start = high_resolution_clock::now();
 
-    for (int m1 = 0; m < m; m += BM) {
-        for (int n1 = 0; n < n; n += BN) {
-            for (int k1 = 0; k < k; k += BK) {
-
-                
-                for (int i = 0; i < BM; i += IT_M) {
-                    for (int j = 0; j < BN; j += IT_N) {
-                        for (int p = 0; p < BK; p += IT_K) {
-
+    for (int m1 = 0; m1 < M; m1 += BM)
+        for (int n1 = 0; n1 < N; n1 += BN)
+            for (int k1 = 0; k1 < K; k1 += BK)
+                for (int i = 0; i < BM; i += IT_M)
+                    for (int j = 0; j < BN; j += IT_N)
+                        for (int p = 0; p < BK; p += IT_K)
                             #pragma unroll
-                            for (int ii = 0; ii < IT_M; ++ii) {
+                            for (int ii = 0; ii < IT_M; ++ii)
                                 #pragma unroll
-                                for (int jj = 0; jj < IT_N; ++jj) {
+                                for (int jj = 0; jj < IT_N; ++jj)
                                     #pragma unroll
                                     for (int pp = 0; pp < IT_K; ++pp) {
-
                                         int row = m1 + i + ii;
                                         int col = n1 + j + jj;
                                         int depth = k1 + p + pp;
-
-                                        if (row < m && col < n && depth < k) {
-                                            C[row * n + col] +=
-                                                A[row * k + depth] *
-                                                B[depth * n + col];
-                                        }
+                                        if (row < M && col < N && depth < K)
+                                            C[row * N + col] +=
+                                                A[row * K + depth] *
+                                                B[depth * N + col];
                                     }
-                                }
-                            }
 
-                        }
-                    }
-                }
-
-            }
-        }
-    }
     auto end = high_resolution_clock::now();
     time_ms = duration<double, milli>(end - start).count();
-    gflops = (2.0 * m * n * k / time_ms) / 1e6;
-}                     
+    gflops = (2.0 * M * N * K / time_ms) / 1e6;
+}                                                     
 
 
 template<int BM, int BN, int BK>
@@ -400,14 +380,15 @@ for (int i = 0; i < idx; ++i) {
 }
 
 if (best_idx1 != -1) {
-    printf("\nBest Configuration: %dx%dx%d with IT=%dx%dx%d and GFLOP/s: %.3f\n",
-       (int)results1[best_idx1][0], (int)results1[best_idx1][1], (int)results1[best_idx1][2],
-       (int)results1[best_idx1][4], (int)results1[best_idx1][5], (int)results1[best_idx1][6],
-       results1[best_idx1][3]);
-
-    
+    printf("\nBest Configuration: BM=%d, BN=%d, BK=%d | IT_M=%d, IT_N=%d, IT_K=%d | GFLOP/s=%.3f\n",
+       (int)results1[best_idx1][0],
+       (int)results1[best_idx1][1],
+       (int)results1[best_idx1][2],
+       (int)results1[best_idx1][3],
+       (int)results1[best_idx1][4],
+       (int)results1[best_idx1][5],
+       results1[best_idx1][6]);
 }
-
     delete[] A;
     delete[] B;
     delete[] C;
