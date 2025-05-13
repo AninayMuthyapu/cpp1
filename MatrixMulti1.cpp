@@ -120,7 +120,7 @@ void multiplyMatricesTiledTemplated(float* A,float* B,float* C ,int m,int n,int 
 }
 
 template <int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
-void compute_matrix_multi(float* A, const float* B, float* C, int M, int N, int K, double& gflops, double& time_ms) {
+void compute_matrix_multi(float* A,  float* B, float* C, int M, int N, int K, double& gflops, double& time_ms) {
     for (int i = 0; i < M * N; ++i) C[i] = 0.0f;
     auto start = high_resolution_clock::now();
 
