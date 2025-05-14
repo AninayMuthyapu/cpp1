@@ -46,9 +46,10 @@ int main(int argc, char* argv[]) {
 
     
     for (int i = 0; i < size; ++i) {
-        A[i] = static_cast<float>(rand()) / RAND_MAX;
-        B[i] = static_cast<float>(rand()) / RAND_MAX;
-    }
+    A[i] = (float)rand() / RAND_MAX;
+    B[i] = (float)rand() / RAND_MAX;
+}
+
 
     
     addMatricesAVX(A, B, C, m, n);
