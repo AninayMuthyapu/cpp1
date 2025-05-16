@@ -134,7 +134,7 @@ void compute_matrix_multi(float* A,  float* B, float* C, int M, int N, int K, do
                         for (int p = 0; p < BK; p += IT_K)
 
                             #pragma unroll
-                            for (int ii = 0; ii < IT_M; ++ii)
+                            for (int ii = 0; ii < IT_M; i+=8)
                                 #pragma unroll
                                 for (int jj = 0; jj < IT_N; ++jj)
                                     #pragma unroll
@@ -157,17 +157,62 @@ void compute_matrix_multi(float* A,  float* B, float* C, int M, int N, int K, do
                                         __m256i index_vec = _mm256_loadu_si256((__m256i*)indices);
                                         __m256 a_vec = _mm256_i32gather_ps(A, index_vec, 4);
 
-                                        
-                                        __m256 c_vec = _mm256_loadu_ps(&C[row * N + col]);
-                                        c_vec = _mm256_fmadd_ps(a_vec, b_vec, c_vec);
-                                        _mm256_storeu_ps(&C[row * N + col], c_vec);
+                                        int c_indices[8] = {
+                                      (row + 0) * N + col,
+                                      (row + 1) * N + col,
+                                      (row + 2) * N + col,
+                                      (row + 3) * N + col,
+                                      (row + 4) * N + col,
+                                      (row + 5) * N + col,
+                                      (row + 6) * N + col,
+                                      (row + 7) * N + col
+                                        };
+                                       __m256i c_index_vec = _mm256_loadu_si256((__m256i*)c_indices);
+                                       __m256 c_vec = _mm256_i32scatter_ps(C, c_index_vec, 4);
+                                       c_vec = _mm256_fmadd_ps(a_vec, b_vec, c_vec);
+                                        float* c_out = (float*)&c_vec;
+                                        for (int s = 0; s < 8; ++s)
+                                        C[c_indices[s]] = c_out[s];
+
+                                       
+                                    }
+
+
+    auto end = high_resolution_clock::now();
+    time_ms = duration<double, milli>(end - start).count();
+    gflops = (2.0 * M * N * K / time_ms) / 1e6;
+}
+
+template <int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
+void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, double& gflops, double& time_ms) {
+    for (int i = 0; i < M * N; ++i) C1[i] = 0.0f;
+    auto start = high_resolution_clock::now();
+
+    for (int m1 = 0; m1 < M; m1 += BM)
+        for (int n1 = 0; n1 < N; n1 += BN)
+            for (int k1 = 0; k1 < K; k1 += BK)
+                for (int i = 0; i < BM; i += IT_M)
+                    for (int j = 0; j < BN; j += IT_N)
+                        for (int p = 0; p < BK; p += IT_K)
+                            #pragma unroll
+                            for (int ii = 0; ii < IT_M; ++ii)
+                                #pragma unroll
+                                for (int jj = 0; jj < IT_N; ++jj)
+                                    #pragma unroll
+                                    for (int pp = 0; pp < IT_K; ++pp) {
+                                        int row = m1 + i + ii;
+                                        int col = n1 + j + jj;
+                                        int depth = k1 + p + pp;
+                                        if (row < M && col < N && depth < K)
+                                            C1[row * N + col] +=
+                                                A[row * K + depth] *
+                                                B[depth * N + col];
                                     }
 
     auto end = high_resolution_clock::now();
     time_ms = duration<double, milli>(end - start).count();
     gflops = (2.0 * M * N * K / time_ms) / 1e6;
-}                                                     
-
+}           
 
 template<int BM, int BN, int BK>
 
@@ -225,6 +270,35 @@ void testBlockSize2(float* A, float* B, float* C, int M, int N, int K, int itera
            BM, BN, BK, IT_M, IT_N, IT_K, avg_time, avg_gflops);
 }
 
+template<int BM, int BN, int BK, int IT_M, int IT_N ,int IT_K>
+void testBlockSize3(float* A, float* B, float* C1, int M, int N, int K, int iterations, float results1[][7], int& idx) {
+    double total_gflops = 0.0, total_time_ms = 0.0;
+
+    for (int iter = 0; iter < iterations; ++iter) {
+        double gflops, time_ms;
+        compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K>(A, B, C1, M, N, K, gflops, time_ms);
+
+        total_gflops += gflops;
+        total_time_ms += time_ms;
+    }
+
+    float avg_gflops = total_gflops / iterations;
+    float avg_time = total_time_ms / iterations;
+
+    // Save all parameters + GFLOPs
+    results1[idx][0] = BM;
+    results1[idx][1] = BN;
+    results1[idx][2] = BK;
+    results1[idx][3] = IT_M;
+    results1[idx][4] = IT_N;
+    results1[idx][5] = IT_K;
+    results1[idx][6] = avg_gflops;
+    idx++;
+
+    printf("Config BMxBNxBK = %dx%dx%d | IT_MxN_K = %dx%dx%d | Time: %.3f ms | Avg GFLOP/s: %.3f\n",
+           BM, BN, BK, IT_M, IT_N, IT_K, avg_time, avg_gflops);
+}
+
 
 
     
@@ -258,6 +332,7 @@ int main(int argc, char* argv[]) {
 
     float* A = new float[m * k];
     float* B = new float[k * n];
+    float* C1 = new float[m * n];
     float* C = new float[m * n];
 //    float* C_omp = new float[m * n];    
 //    float* C_tiled = new float[m * n];
@@ -343,6 +418,7 @@ int main(int argc, char* argv[]) {
 //    testBlockSize<256, 128, 32>(A, B, C, m, n, k, itr, results, idx);
 //    testBlockSize<128, 256, 32>(A, B, C, m, n, k, itr, results, idx);
     testBlockSize2<32,32,32,8, 1, 1>(A, B, C, m, n, k, itr, results1, idx);
+     testBlockSize3<32,32,32,8, 1, 1>(A, B, C, m, n, k, itr, results1, idx);
     //testBlockSize2<32,32,32,8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
     //testBlockSize2<32,32,32,8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
 
@@ -384,7 +460,19 @@ int main(int argc, char* argv[]) {
 //    if (best_idx != -1) {
 //        printf("\nBest Configuration: %dx%dx%d with GFLOP/s: %.3f\n",
 //           (int)results[best_idx][0], (int)results[best_idx][1], (int)results[best_idx][2], best_gflops); 
-//    }
+// }
+  bool match = true;
+for (int i = 0; i < m* n; ++i) {
+    float diff = fabs(C1[i] - C[i]);
+    if (diff > 1e-3) {
+        std::cout << "Mismatch at " << i << ": " << C1[i] << " vs " << C[i] << "\n";
+        match = false;
+        break;
+    }
+}
+if (match) std::cout << "Outputs match\n";
+else       std::cout << " Outputs mismatch\n";
+
 
 
     float best_gflops1 = 0.0;
@@ -416,5 +504,10 @@ if (best_idx1 != -1) {
 }
 
 //g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp -o matrix_mul
-//g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp anyoption.cpp -o matrix_mul
-//./matrix_mul -m 1024 -n 1024 -k 1024 -itr 10
+//
+//./matrix_mul -m 1024 -n 1024 -k 1024 -itr 10 g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp anyoption.cpp -o matrix_mul
+float* c_out = (float*)&c_vec;
+                                        for (int s = 0; s < 8; ++s)
+                                        C[c_indices[s]] = c_out[s];
+
+                                        //g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp AnyOption/AnyOption/anyoption.cpp -o matrix_mul
