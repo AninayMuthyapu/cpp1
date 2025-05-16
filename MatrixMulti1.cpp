@@ -1,7 +1,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <ctime>
-#include "AnyOption/anyoption.h"  
+#include "AnyOption/AnyOption/anyoption.h"  
 #include <omp.h>
 #include <cmath>
 #include <chrono>
@@ -9,6 +9,7 @@
 #include <numeric>
 #include <map> 
 #include <unordered_map>
+#include <immintrin.h>  
 using namespace std;
 using namespace std::chrono;
 
@@ -127,9 +128,11 @@ void compute_matrix_multi(float* A,  float* B, float* C, int M, int N, int K, do
     for (int m1 = 0; m1 < M; m1 += BM)
         for (int n1 = 0; n1 < N; n1 += BN)
             for (int k1 = 0; k1 < K; k1 += BK)
+
                 for (int i = 0; i < BM; i += IT_M)
                     for (int j = 0; j < BN; j += IT_N)
                         for (int p = 0; p < BK; p += IT_K)
+
                             #pragma unroll
                             for (int ii = 0; ii < IT_M; ++ii)
                                 #pragma unroll
@@ -139,10 +142,25 @@ void compute_matrix_multi(float* A,  float* B, float* C, int M, int N, int K, do
                                         int row = m1 + i + ii;
                                         int col = n1 + j + jj;
                                         int depth = k1 + p + pp;
-                                        if (row < M && col < N && depth < K)
-                                            C[row * N + col] +=
-                                                A[row * K + depth] *
-                                                B[depth * N + col];
+                                        float b_val = B[depth * N + col];
+                                        __m256 b_vec = _mm256_set1_ps(b_val);
+                                        int indices[8] = {
+                                            (row + 0) * K + depth,
+                                            (row + 1) * K + depth,
+                                            (row + 2) * K + depth,
+                                            (row + 3) * K + depth,
+                                            (row + 4) * K + depth,
+                                            (row + 5) * K + depth,
+                                            (row + 6) * K + depth,
+                                            (row + 7) * K + depth
+                                        };
+                                        __m256i index_vec = _mm256_loadu_si256((__m256i*)indices);
+                                        __m256 a_vec = _mm256_i32gather_ps(A, index_vec, 4);
+
+                                        
+                                        __m256 c_vec = _mm256_loadu_ps(&C[row * N + col]);
+                                        c_vec = _mm256_fmadd_ps(a_vec, b_vec, c_vec);
+                                        _mm256_storeu_ps(&C[row * N + col], c_vec);
                                     }
 
     auto end = high_resolution_clock::now();
@@ -324,34 +342,34 @@ int main(int argc, char* argv[]) {
 //    testBlockSize<128, 128, 32>(A, B, C, m, n, k, itr, results, idx);
 //    testBlockSize<256, 128, 32>(A, B, C, m, n, k, itr, results, idx);
 //    testBlockSize<128, 256, 32>(A, B, C, m, n, k, itr, results, idx);
-    testBlockSize2<32,32,32,8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
-    testBlockSize2<32,32,32,8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
-    testBlockSize2<32,32,32,8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize2<32,32,32,8, 1, 1>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<32,32,32,8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<32,32,32,8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
 
 
-    testBlockSize2<64, 64, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
-    testBlockSize2<64, 64, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
-    testBlockSize2<64, 64, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<64, 64, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<64, 64, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<64, 64, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
 
 
-    testBlockSize2<128, 128, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
-    testBlockSize2<128, 128, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
-    testBlockSize2<128, 128, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<128, 128, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<128, 128, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<128, 128, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
 
 
-    testBlockSize2<256, 256, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx); 
-    testBlockSize2<256, 256, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
-    testBlockSize2<256, 256, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<256, 256, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx); 
+    //testBlockSize2<256, 256, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<256, 256, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
 
 
-    testBlockSize2<256, 128, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
-    testBlockSize2<256, 128, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
-    testBlockSize2<256, 128, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<256, 128, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<256, 128, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSiz//e2<256, 128, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
 
 
-   testBlockSize2<128, 256, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
-   testBlockSize2<128, 256, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
-   testBlockSize2<128, 256, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
+   //testBlockSize2<128, 256, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
+   //testBlockSize2<128, 256, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+   //testBlockSize2<128, 256, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
 
 //    float best_gflops = 0.0f;
 //    int best_idx = -1;
@@ -397,3 +415,6 @@ if (best_idx1 != -1) {
     return 0;
 }
 
+//g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp -o matrix_mul
+//g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp anyoption.cpp -o matrix_mul
+//./matrix_mul -m 1024 -n 1024 -k 1024 -itr 10
