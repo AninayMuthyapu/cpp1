@@ -125,7 +125,8 @@ void compute_matrix_multi(float* A,  float* B, float* C, int M, int N, int K, do
     for (int i = 0; i < M * N; ++i) C[i] = 0.0f;
     auto start = high_resolution_clock::now();
 
-    for (int m1 = 0; m1 < M; m1 += BM)
+    
+   for (int m1 = 0; m1 < M; m1 += BM)
         for (int n1 = 0; n1 < N; n1 += BN)
             for (int k1 = 0; k1 < K; k1 += BK)
 
@@ -134,7 +135,7 @@ void compute_matrix_multi(float* A,  float* B, float* C, int M, int N, int K, do
                         for (int p = 0; p < BK; p += IT_K)
 
                             #pragma unroll
-                            for (int ii = 0; ii < IT_M; i+=8)
+                            for (int ii = 0; ii < IT_M; ii+=8)
                                 #pragma unroll
                                 for (int jj = 0; jj < IT_N; ++jj)
                                     #pragma unroll
@@ -142,6 +143,18 @@ void compute_matrix_multi(float* A,  float* B, float* C, int M, int N, int K, do
                                         int row = m1 + i + ii;
                                         int col = n1 + j + jj;
                                         int depth = k1 + p + pp;
+                                        if (row + 7 >= M || col >= N || depth >= K)  {
+                                            for (int r = 0; r < 8; ++r) {
+                                                int actual_row = row + r;
+                                                if (actual_row >= M) break;
+                                                float a_val = A[actual_row * K + depth];
+                                                float b_val = B[depth * N + col];
+                                                C[actual_row * N + col] += a_val * b_val;
+                                            }
+                                            continue;
+                                        }
+
+
                                         float b_val = B[depth * N + col];
                                         __m256 b_vec = _mm256_set1_ps(b_val);
                                         int indices[8] = {
@@ -158,24 +171,28 @@ void compute_matrix_multi(float* A,  float* B, float* C, int M, int N, int K, do
                                         __m256 a_vec = _mm256_i32gather_ps(A, index_vec, 4);
 
                                         int c_indices[8] = {
-                                      (row + 0) * N + col,
-                                      (row + 1) * N + col,
-                                      (row + 2) * N + col,
-                                      (row + 3) * N + col,
-                                      (row + 4) * N + col,
-                                      (row + 5) * N + col,
-                                      (row + 6) * N + col,
-                                      (row + 7) * N + col
+                                            (row + 0) * N + col,
+                                            (row + 1) * N + col,
+                                            (row + 2) * N + col,
+                                            (row + 3) * N + col,
+                                            (row + 4) * N + col,
+                                            (row + 5) * N + col,
+                                            (row + 6) * N + col,
+                                            (row + 7) * N + col
                                         };
-                                       __m256i c_index_vec = _mm256_loadu_si256((__m256i*)c_indices);
-                                       __m256 c_vec = _mm256_i32scatter_ps(C, c_index_vec, 4);
-                                       c_vec = _mm256_fmadd_ps(a_vec, b_vec, c_vec);
-                                        float* c_out = (float*)&c_vec;
-                                        for (int s = 0; s < 8; ++s)
-                                        C[c_indices[s]] = c_out[s];
-
-                                       
+                                        float c_vals[8];
+                                    for (int r = 0; r < 8; ++r) {
+                                        c_vals[r] = C[c_indices[r]];
                                     }
+                                    __m256 c_vec = _mm256_loadu_ps(c_vals);
+
+                                    c_vec = _mm256_fmadd_ps(a_vec, b_vec, c_vec);
+
+                                    _mm256_storeu_ps(c_vals, c_vec);
+                                    for (int r = 0; r < 8; ++r) {
+                                        C[c_indices[r]] = c_vals[r];  // Note: using = instead of +=
+                                    }
+                                }
 
 
     auto end = high_resolution_clock::now();
@@ -188,12 +205,14 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
     for (int i = 0; i < M * N; ++i) C1[i] = 0.0f;
     auto start = high_resolution_clock::now();
 
+     
+
     for (int m1 = 0; m1 < M; m1 += BM)
         for (int n1 = 0; n1 < N; n1 += BN)
             for (int k1 = 0; k1 < K; k1 += BK)
-                for (int i = 0; i < BM; i += IT_M)
-                    for (int j = 0; j < BN; j += IT_N)
-                        for (int p = 0; p < BK; p += IT_K)
+                for (int i = 0; i < BM && (m1 + i) < M; i += IT_M)
+                    for (int j = 0; j < BN && (n1 + j) < N; j += IT_N)
+                        for (int p = 0; p < BK && (k1 + p) < K; p += IT_K)
                             #pragma unroll
                             for (int ii = 0; ii < IT_M; ++ii)
                                 #pragma unroll
@@ -204,9 +223,7 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
                                         int col = n1 + j + jj;
                                         int depth = k1 + p + pp;
                                         if (row < M && col < N && depth < K)
-                                            C1[row * N + col] +=
-                                                A[row * K + depth] *
-                                                B[depth * N + col];
+                                            C1[row * N + col] += A[row * K + depth] * B[depth * N + col];
                                     }
 
     auto end = high_resolution_clock::now();
@@ -506,8 +523,8 @@ if (best_idx1 != -1) {
 //g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp -o matrix_mul
 //
 //./matrix_mul -m 1024 -n 1024 -k 1024 -itr 10 g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp anyoption.cpp -o matrix_mul
-float* c_out = (float*)&c_vec;
-                                        for (int s = 0; s < 8; ++s)
-                                        C[c_indices[s]] = c_out[s];
+//float* c_out = (float*)&c_vec;
+  //                                      for (int s = 0; s < 8; ++s)
+    //                                    C[c_indices[s]] = c_out[s];
 
                                         //g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp AnyOption/AnyOption/anyoption.cpp -o matrix_mul
