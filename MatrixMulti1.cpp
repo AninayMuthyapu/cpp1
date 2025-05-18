@@ -230,7 +230,7 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
                                         for (int pp = 0; pp < IT_K; ++pp) {
                                             int depth = k1 + p + pp;
                                             if (depth < K)
-                                                C_accum += A[row * K + depth] * B[depth * N + col]; 
+                                                C_accum += A_cache[row * K + depth] * B[depth * N + col]; 
                                         }
                                         C1[row * N + col] += C_accum;  
                                     }
