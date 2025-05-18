@@ -204,28 +204,40 @@ template <int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
 void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, double& gflops, double& time_ms) {
     for (int i = 0; i < M * N; ++i) C1[i] = 0.0f;
     auto start = high_resolution_clock::now();
-
-     
-
     for (int m1 = 0; m1 < M; m1 += BM)
         for (int n1 = 0; n1 < N; n1 += BN)
             for (int k1 = 0; k1 < K; k1 += BK)
+                float A_cache[BK][BM];
+                for (int kk = 0; kk < BK; ++kk)
+                    for (int mm = 0; mm < BM; ++mm) {
+                        int global_row = m1 + mm;
+                        int global_col = k1 + kk;
+                        if (global_row < M && global_col < K)
+                            A_cache[kk][mm] = A[global_row * K + global_col];
+                    }
                 for (int i = 0; i < BM && (m1 + i) < M; i += IT_M)
                     for (int j = 0; j < BN && (n1 + j) < N; j += IT_N)
                         for (int p = 0; p < BK && (k1 + p) < K; p += IT_K)
                             #pragma unroll
                             for (int ii = 0; ii < IT_M; ++ii)
                                 #pragma unroll
-                                for (int jj = 0; jj < IT_N; ++jj)
-                                    #pragma unroll
-                                    for (int pp = 0; pp < IT_K; ++pp) {
-                                        int row = m1 + i + ii;
-                                        int col = n1 + j + jj;
-                                        int depth = k1 + p + pp;
-                                        if (row < M && col < N && depth < K)
-                                            C1[row * N + col] += A[row * K + depth] * B[depth * N + col];
+                                for (int jj = 0; jj < IT_N; ++jj) {
+                                    int row = m1 + i + ii;
+                                    int col = n1 + j + jj;
+                                    if (row < M && col < N) {
+                                        float C_accum = 0.0f;  
+                                        #pragma unroll
+                                        for (int pp = 0; pp < IT_K; ++pp) {
+                                            int depth = k1 + p + pp;
+                                            if (depth < K)
+                                                C_accum += A[row * K + depth] * B[depth * N + col]; 
+                                        }
+                                        C1[row * N + col] += C_accum;  
                                     }
+                                }
+     
 
+    
     auto end = high_resolution_clock::now();
     time_ms = duration<double, milli>(end - start).count();
     gflops = (2.0 * M * N * K / time_ms) / 1e6;
