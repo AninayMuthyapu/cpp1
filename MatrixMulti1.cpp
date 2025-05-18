@@ -202,7 +202,7 @@ void compute_matrix_multi(float* A,  float* B, float* C, int M, int N, int K, do
 
 template <int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
 void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, double& gflops, double& time_ms) {
-    for (int i = 0; i < M * N; ++i) C1[i] = 0.0f;
+  
     auto start = high_resolution_clock::now();
     for (int m1 = 0; m1 < M; m1 += BM)
         for (int n1 = 0; n1 < N; n1 += BN)
