@@ -190,7 +190,7 @@ void compute_matrix_multi(float* A,  float* B, float* C, int M, int N, int K, do
 
                                     _mm256_storeu_ps(c_vals, c_vec);
                                     for (int r = 0; r < 8; ++r) {
-                                        C[c_indices[r]] = c_vals[r];  // Note: using = instead of +=
+                                        C[c_indices[r]] = c_vals[r];  
                                     }
                                 }
 
