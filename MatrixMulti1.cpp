@@ -207,6 +207,8 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
         for (int n1 = 0; n1 < N; n1 += BN) {
             for (int k1 = 0; k1 < K; k1 += BK) {
                 float A_cache[BK][BM];
+                float B_cache[BK][BN];
+                float C_cache[BK][BM];
                 
                 for (int kk = 0; kk < BK; ++kk) {
                     for (int mm = 0; mm < BM; ++mm) {
@@ -216,6 +218,26 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
                             A_cache[kk][mm] = A[global_row * K + global_col];
                         else
                             A_cache[kk][mm] = 0.0f;
+                    }
+                }
+                for (int kk = 0; kk < BK; ++kk) {
+                    for (int nn = 0; nn < BN; ++nn) {
+                        int global_row = k1 + kk;
+                        int global_col = n1 + nn;
+                        if (global_row < K && global_col < N)
+                            B_cache[kk][nn] = B[global_row * N + global_col];
+                        else
+                            B_cache[kk][nn] = 0.0f;
+                    }
+                }
+                for (int kk = 0; kk < BK; ++kk) {
+                    for (int mm = 0; mm < BM; ++mm) {
+                        int global_row = m1 + mm;
+                        int global_col = n1 + kk;
+                        if (global_row < M && global_col < N)
+                            C_cache[kk][mm] = C1[global_row * N + global_col];
+                        else
+                            C_cache[kk][mm] = 0.0f;
                     }
                 }
 
@@ -231,18 +253,21 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
                                     for (int pp = 0; pp < IT_K; ++pp) {
                                         int depth = p + pp;
                                         if ((k1 + depth) < K) {
-                                            c_accum += A_cache[depth][i + ii] * B[(k1 + depth) * N + n1 + j + jj];
+                                            c_accum += A_cache[depth][i + ii] * B_cache[depth][ j + jj];
                                         }
                                     }
-                                    int row = m1 + i + ii;
-                                    int col = n1 + j + jj;
-                                    if (row < M && col < N)
-                                        C1[row * N + col] += c_accum;
+                                    C_cache[i + ii][j + jj] += c_accum;
                                 }
                             }
                         }
                     }
                 }
+                for (int mm = 0; mm < BM; ++mm) {
+                    for (int nn = 0; nn < BN; ++nn) {
+                        int row = m1 + mm;
+                        int col = n1 + nn;
+                        if (row < M && col < N)
+                            C1[row * N + col] = C_cache[mm][nn];
             }
         }
     }
