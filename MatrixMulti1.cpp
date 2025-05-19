@@ -392,7 +392,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Iterations: " << itr  << std::endl;
     std::cout << "Tile Size: " << block_size << std::endl;
 
-//    const double total_flops = 2*m*n*k;
+    //    const double total_flops = 2*m*n*k;
     vector<double> seq_gflops, par_gflops,tile_gflops;
     float results1[10][7];
 
@@ -400,8 +400,8 @@ int main(int argc, char* argv[]) {
     float* B = new float[k * n];
     float* C1 = new float[m * n];
     float* C = new float[m * n];
-//    float* C_omp = new float[m * n];    
-//    float* C_tiled = new float[m * n];
+    //    float* C_omp = new float[m * n];    
+    //    float* C_tiled = new float[m * n];
 
     
     for (int i = 0; i < m * k; ++i)
@@ -409,7 +409,6 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < k * n; ++i)
         B[i] = static_cast<float>(rand()) / RAND_MAX;
 
-    
    //    multiplyMatrices(A, B, C, m, n, k);
 
    //  multiplyMatricesOMP(A, B, C_omp, m, n, k);
@@ -473,18 +472,18 @@ int main(int argc, char* argv[]) {
    // cout << "  Avg Speedup (Tiled vs Parallel):    " << avg_tile / avg_par << "x\n";
 
     int idx = 0;
-//    float results[10][4]; 
-//    float
- 
+    
+    //    float results[10][4]; 
+    //    float results1[10][7];
 
-//    testBlockSize<32, 32, 32>(A, B, C, m, n, k,itr, results, idx);
-//    testBlockSize<256, 256, 32>(A, B, C, m, n, k, itr, results, idx);
-//    testBlockSize<64, 64, 32>(A, B, C, m, n, k, itr, results, idx);
-//    testBlockSize<128, 128, 32>(A, B, C, m, n, k, itr, results, idx);
-//    testBlockSize<256, 128, 32>(A, B, C, m, n, k, itr, results, idx);
-//    testBlockSize<128, 256, 32>(A, B, C, m, n, k, itr, results, idx);
+    //    testBlockSize<32, 32, 32>(A, B, C, m, n, k,itr, results, idx);
+    //    testBlockSize<256, 256, 32>(A, B, C, m, n, k,itr, results, idx);
+    //    testBlockSize<64, 64, 32>(A, B, C, m, n, k,itr, results, idx);
+    //    testBlockSize<128, 128, 32>(A, B, C, m, n, k,itr, results, idx);
+    //    testBlockSize<256, 128, 32>(A, B, C, m, n, k,itr, results, idx);
+    //    testBlockSize<128, 256, 32>(A, B, C, m, n, k,itr, results, idx);
     //testBlockSize2<32,32,32,8, 1, 1>(A, B, C, m, n, k, itr, results1, idx);
-     testBlockSize3<32,32,32,8, 1, 1>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize3<32,32,32,8, 1, 1>(A, B, C, m, n, k, itr, results1, idx);
     //testBlockSize2<32,32,32,8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
     //testBlockSize2<32,32,32,8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
 
@@ -506,74 +505,74 @@ int main(int argc, char* argv[]) {
 
     testBlockSize3<256, 128, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
     //testBlockSize2<256, 128, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
-    //testBlockSiz//e2<256, 128, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<256, 128, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
 
 
-   testBlockSize3<128, 256, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
-   //testBlockSize2<128, 256, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
-   //testBlockSize2<128, 256, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize3<128, 256, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<128, 256, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<128, 256, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
 
-//    float best_gflops = 0.0f;
-//    int best_idx = -1;
-//    for (int i = 0; i < idx; ++i) {
-//        if (results[i][3] > best_gflops) {
-//             best_gflops = results[i][3];
-//             best_idx = i;
-//     }   }
+    //    float best_gflops = 0.0f;
+    //    int best_idx = -1;
+    //    for (int i = 0; i < idx; ++i) {
+    //        if (results[i][3] > best_gflops) {
+    //            best_gflops = results[i][3];
+    //            best_idx = i;
+    //        }
+    //    }
 
-    
-//
-//    if (best_idx != -1) {
-//        printf("\nBest Configuration: %dx%dx%d with GFLOP/s: %.3f\n",
-//           (int)results[best_idx][0], (int)results[best_idx][1], (int)results[best_idx][2], best_gflops); 
-// }
-  bool match = true;
-for (int i = 0; i < m* n; ++i) {
-    float diff = fabs(C1[i] - C[i]);
-    if (diff > 1e-3) {
-        std::cout << "Mismatch at " << i << ": " << C1[i] << " vs " << C[i] << "\n";
-        match = false;
-        break;
+    //
+    //    if (best_idx != -1) {
+    //        printf("\nBest Configuration: %dx%dx%d with GFLOP/s: %.3f\n",
+    //           (int)results[best_idx][0], (int)results[best_idx][1], (int)results[best_idx][2], best_gflops);
+    //   }
+    bool match = true;
+    for (int i = 0; i < m* n; ++i) {
+       float diff = fabs(C1[i] - C[i]);
+     if (diff > 1e-3) {
+         std::cout << "Mismatch at " << i << ": " << C1[i] << " vs " << C[i] << "\n";
+         match = false;
+         break;
+     }
     }
-}
-if (match) std::cout << "Outputs match\n";
-else       std::cout << " Outputs mismatch\n";
+    if (match) std::cout << "Outputs match\n";
+    else       std::cout << " Outputs mismatch\n";
 
 
 
     float best_gflops1 = 0.0;
-int best_idx1 = -1;
+    int best_idx1 = -1;
 
-for (int i = 0; i < idx; ++i) {
-    if (results1[i][6] > best_gflops1) {
-        best_gflops1 = results1[i][6];
-        best_idx1 = i;
+    for (int i = 0; i < idx; ++i) {
+       if (results1[i][6] > best_gflops1) {
+           best_gflops1 = results1[i][6];
+           best_idx1 = i;
+       }
     }
-}
 
-if (best_idx1 != -1) {
-    printf("\nBest Configuration: BM=%d, BN=%d, BK=%d | IT_M=%d, IT_N=%d, IT_K=%d | GFLOP/s=%.3f\n",
-       (int)results1[best_idx1][0],
-       (int)results1[best_idx1][1],
-       (int)results1[best_idx1][2],
-       (int)results1[best_idx1][3],
-       (int)results1[best_idx1][4],
-       (int)results1[best_idx1][5],
-       results1[best_idx1][6]);
-}
-    delete[] A;
-    delete[] B;
-    delete[] C;
-    
+    if (best_idx1 != -1) {
+        printf("\nBest Configuration: BM=%d, BN=%d, BK=%d | IT_M=%d, IT_N=%d, IT_K=%d | GFLOP/s=%.3f\n",
+           (int)results1[best_idx1][0],
+           (int)results1[best_idx1][1],
+           (int)results1[best_idx1][2],
+           (int)results1[best_idx1][3],
+           (int)results1[best_idx1][4],
+           (int)results1[best_idx1][5],
+           results1[best_idx1][6]);
+    }
+        delete[] A;
+        delete[] B;
+        delete[] C;
 
-    return 0;
-}
 
-//g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp -o matrix_mul
-//
-//./matrix_mul -m 1024 -n 1024 -k 1024 -itr 10 g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp anyoption.cpp -o matrix_mul
-//float* c_out = (float*)&c_vec;
-  //                                      for (int s = 0; s < 8; ++s)
-    //                                    C[c_indices[s]] = c_out[s];
+        return 0;
+    }
 
-                                        //g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp AnyOption/AnyOption/anyoption.cpp -o matrix_mul
+    // g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp -o matrix_mul
+    //
+    // ./matrix_mul -m 1024 -n 1024 -k 1024 -itr 10 g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp anyoption.cpp -o matrix_mul
+    // float* c_out = (float*)&c_vec;
+    // for (int s = 0; s < 8; ++s)
+    //     C[c_indices[s]] = c_out[s];
+
+    // g++ -O3 -mavx -mfma -march=native -fopenmp MatrixMulti1.cpp AnyOption/AnyOption/anyoption.cpp -o matrix_mul
