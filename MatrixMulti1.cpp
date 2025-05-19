@@ -202,7 +202,7 @@ void compute_matrix_multi(float* A,  float* B, float* C, int M, int N, int K, do
 
 template <int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
 void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, double& gflops, double& time_ms) {
-  
+    auto start = std::chrono::high_resolution_clock::now();
     for (int m1 = 0; m1 < M; m1 += BM) {
         for (int n1 = 0; n1 < N; n1 += BN) {
             for (int k1 = 0; k1 < K; k1 += BK) {
@@ -237,7 +237,7 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
                                     int row = m1 + i + ii;
                                     int col = n1 + j + jj;
                                     if (row < M && col < N)
-                                        C[row * N + col] += c_accum;
+                                        C1[row * N + col] += c_accum;
                                 }
                             }
                         }
@@ -456,7 +456,7 @@ int main(int argc, char* argv[]) {
 //    testBlockSize<128, 128, 32>(A, B, C, m, n, k, itr, results, idx);
 //    testBlockSize<256, 128, 32>(A, B, C, m, n, k, itr, results, idx);
 //    testBlockSize<128, 256, 32>(A, B, C, m, n, k, itr, results, idx);
-    testBlockSize2<32,32,32,8, 1, 1>(A, B, C, m, n, k, itr, results1, idx);
+    //testBlockSize2<32,32,32,8, 1, 1>(A, B, C, m, n, k, itr, results1, idx);
      testBlockSize3<32,32,32,8, 1, 1>(A, B, C, m, n, k, itr, results1, idx);
     //testBlockSize2<32,32,32,8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
     //testBlockSize2<32,32,32,8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
@@ -467,22 +467,22 @@ int main(int argc, char* argv[]) {
     //testBlockSize2<64, 64, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
 
 
-    //testBlockSize2<128, 128, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize3<128, 128, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
     //testBlockSize2<128, 128, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
     //testBlockSize2<128, 128, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
 
 
-    //testBlockSize2<256, 256, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx); 
+    testBlockSize3<256, 256, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx); 
     //testBlockSize2<256, 256, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
     //testBlockSize2<256, 256, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
 
 
-    //testBlockSize2<256, 128, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
+    testBlockSize3<256, 128, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
     //testBlockSize2<256, 128, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
     //testBlockSiz//e2<256, 128, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
 
 
-   //testBlockSize2<128, 256, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
+   testBlockSize3<128, 256, 32, 8, 8, 8>(A, B, C, m, n, k, itr, results1, idx);
    //testBlockSize2<128, 256, 32, 8, 1, 8>(A, B, C, m, n, k, itr, results1, idx);
    //testBlockSize2<128, 256, 32, 4, 8, 1>(A, B, C, m, n, k, itr, results1, idx);
 
