@@ -203,39 +203,49 @@ void compute_matrix_multi(float* A,  float* B, float* C, int M, int N, int K, do
 template <int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
 void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, double& gflops, double& time_ms) {
   
-    auto start = high_resolution_clock::now();
-    for (int m1 = 0; m1 < M; m1 += BM)
-        for (int n1 = 0; n1 < N; n1 += BN)
-            for (int k1 = 0; k1 < K; k1 += BK)
+    for (int m1 = 0; m1 < M; m1 += BM) {
+        for (int n1 = 0; n1 < N; n1 += BN) {
+            for (int k1 = 0; k1 < K; k1 += BK) {
                 float A_cache[BK][BM];
-                for (int kk = 0; kk < BK; ++kk)
+                
+                for (int kk = 0; kk < BK; ++kk) {
                     for (int mm = 0; mm < BM; ++mm) {
                         int global_row = m1 + mm;
                         int global_col = k1 + kk;
                         if (global_row < M && global_col < K)
                             A_cache[kk][mm] = A[global_row * K + global_col];
+                        else
+                            A_cache[kk][mm] = 0.0f;
                     }
-                for (int i = 0; i < BM && (m1 + i) < M; i += IT_M)
-                    for (int j = 0; j < BN && (n1 + j) < N; j += IT_N)
-                        for (int p = 0; p < BK && (k1 + p) < K; p += IT_K)
+                }
+
+                for (int i = 0; i < BM && (m1 + i) < M; i += IT_M) {
+                    for (int j = 0; j < BN && (n1 + j) < N; j += IT_N) {
+                        for (int p = 0; p < BK && (k1 + p) < K; p += IT_K) {
                             #pragma unroll
-                            for (int ii = 0; ii < IT_M; ++ii)
+                            for (int ii = 0; ii < IT_M; ++ii) {
                                 #pragma unroll
                                 for (int jj = 0; jj < IT_N; ++jj) {
+                                    float c_accum = 0.0f;
+                                    #pragma unroll
+                                    for (int pp = 0; pp < IT_K; ++pp) {
+                                        int depth = p + pp;
+                                        if ((k1 + depth) < K) {
+                                            c_accum += A_cache[depth][i + ii] * B[(k1 + depth) * N + n1 + j + jj];
+                                        }
+                                    }
                                     int row = m1 + i + ii;
                                     int col = n1 + j + jj;
-                                    if (row < M && col < N) {
-                                        float C_accum = 0.0f;  
-                                        #pragma unroll
-                                        for (int pp = 0; pp < IT_K; ++pp) {
-                                            int depth = k1 + p + pp;
-                                            if (depth < K)
-                                                C_accum += A_cache[row * K + depth] * B[depth * N + col]; 
-                                        }
-                                        C1[row * N + col] += C_accum;  
-                                    }
+                                    if (row < M && col < N)
+                                        C[row * N + col] += c_accum;
                                 }
-     
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     
     auto end = high_resolution_clock::now();
