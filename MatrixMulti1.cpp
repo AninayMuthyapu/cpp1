@@ -230,14 +230,14 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
                             B_cache[kk][nn] = 0.0f;
                     }
                 }
-                for (int kk = 0; kk < BK; ++kk) {
-                    for (int mm = 0; mm < BM; ++mm) {
+                for (int mm = 0; mm < BM; ++mm) {
+                    for (int nn = 0; nn < BN; ++nn) {
                         int global_row = m1 + mm;
-                        int global_col = n1 + kk;
+                        int global_col = n1 + nn;
                         if (global_row < M && global_col < N)
-                            C_cache[kk][mm] = C1[global_row * N + global_col];
+                            C_cache[mm][nn] = C1[global_row * N + global_col];
                         else
-                            C_cache[kk][mm] = 0.0f;
+                            C_cache[mm][nn] = 0.0f;
                     }
                 }
 
@@ -262,12 +262,14 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
                         }
                     }
                 }
-                for (int mm = 0; mm < BM; ++mm) {
-                    for (int nn = 0; nn < BN; ++nn) {
-                        int row = m1 + mm;
-                        int col = n1 + nn;
-                        if (row < M && col < N)
-                            C1[row * N + col] = C_cache[mm][nn];
+                for (int kk = 0; kk < BK; ++kk) {
+                    for (int mm = 0; mm < BM; ++mm) {
+                        int global_row = m1 + mm;
+                        int global_col = n1 + kk;
+                        if (global_row < M && global_col < N)
+                            C1[global_row * N + global_col] = C_cache[kk][mm];
+                    }
+                }
             }
         }
     }
