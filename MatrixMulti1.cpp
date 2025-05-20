@@ -10,6 +10,7 @@
 #include <map> 
 #include <unordered_map>
 #include <immintrin.h>  
+#include <cstring>
 using namespace std;
 using namespace std::chrono;
 
@@ -208,7 +209,7 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
             for (int k1 = 0; k1 < K; k1 += BK) {
                 float A_cache[BK][BM];
                 float B_cache[BK][BN];
-                float C_cache[BK][BM];
+                float C_cache[BM][BN];
                 
                 for (int kk = 0; kk < BK; ++kk) {
                     for (int mm = 0; mm < BM; ++mm) {
@@ -262,14 +263,15 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
                         }
                     }
                 }
-                for (int kk = 0; kk < BK; ++kk) {
-                    for (int mm = 0; mm < BM; ++mm) {
+                for (int mm = 0; mm < BM; ++mm) {
+                    for (int nn = 0; nn < BN; ++nn) {
                         int global_row = m1 + mm;
-                        int global_col = n1 + kk;
+                        int global_col = n1 + nn;
                         if (global_row < M && global_col < N)
-                            C1[global_row * N + global_col] = C_cache[kk][mm];
+                            C1[global_row * N + global_col] = C_cache[mm][nn];
                     }
                 }
+                
             }
         }
     }
