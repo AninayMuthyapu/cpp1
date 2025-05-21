@@ -222,26 +222,39 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
                     }
                 }
                 for (int kk = 0; kk < BK; ++kk) {
-                    for (int nn = 0; nn < BN; ++nn) {
-                        int global_row = k1 + kk;
-                        int global_col = n1 + nn;
-                        if (global_row < K && global_col < N)
-                            B_cache[kk][nn] = B[global_row * N + global_col];
+                    int global_row = k1 + kk;
+                    if (global_row < K) {
+                        int valid_cols;
+                        if (BN < (N - n1))
+                            valid_cols = BN;
                         else
-                            B_cache[kk][nn] = 0.0f;
-                    }
-                }
-                for (int mm = 0; mm < BM; ++mm) {
-                    for (int nn = 0; nn < BN; ++nn) {
-                        int global_row = m1 + mm;
-                        int global_col = n1 + nn;
-                        if (global_row < M && global_col < N)
-                            C_cache[mm][nn] = C1[global_row * N + global_col];
-                        else
-                            C_cache[mm][nn] = 0.0f;
+                            valid_cols = N - n1;
+
+                        memcpy(B_cache[kk], &B[global_row * N + n1], valid_cols * sizeof(float));
+                        for (int pad = valid_cols; pad < BN; ++pad)
+                            B_cache[kk][pad] = 0.0f;
+                    } else {
+                        memset(B_cache[kk], 0, BN * sizeof(float));
                     }
                 }
 
+
+                for (int mm = 0; mm < BM; ++mm) {
+                    int global_row = m1 + mm;
+                    if (global_row < M) {
+                        int valid_cols;
+                        if (BN < (N - n1))
+                            valid_cols = BN;
+                        else
+                            valid_cols = N - n1;
+
+                        memcpy(C_cache[mm], &C1[global_row * N + n1], valid_cols * sizeof(float));
+                        for (int pad = valid_cols; pad < BN; ++pad)
+                            C_cache[mm][pad] = 0.0f;
+                    } else {
+                        memset(C_cache[mm], 0, BN * sizeof(float));
+                    }
+                }
                 for (int i = 0; i < BM && (m1 + i) < M; i += IT_M) {
                     for (int j = 0; j < BN && (n1 + j) < N; j += IT_N) {
                         for (int p = 0; p < BK && (k1 + p) < K; p += IT_K) {
@@ -264,11 +277,15 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
                     }
                 }
                 for (int mm = 0; mm < BM; ++mm) {
-                    for (int nn = 0; nn < BN; ++nn) {
-                        int global_row = m1 + mm;
-                        int global_col = n1 + nn;
-                        if (global_row < M && global_col < N)
-                            C1[global_row * N + global_col] = C_cache[mm][nn];
+                    int global_row = m1 + mm;
+                    if (global_row < M) {
+                        int valid_cols;
+                        if (BN < (N - n1))
+                            valid_cols = BN;
+                        else
+                            valid_cols = N - n1;
+
+                        memcpy(&C1[global_row * N + n1], C_cache[mm], valid_cols * sizeof(float));
                     }
                 }
                 
