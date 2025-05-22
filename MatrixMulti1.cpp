@@ -297,7 +297,8 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
     auto end = high_resolution_clock::now();
     time_ms = duration<double, milli>(end - start).count();
     gflops = (2.0 * M * N * K / time_ms) / 1e6;
-}           
+}  
+         
 
 template<int BM, int BN, int BK>
 
