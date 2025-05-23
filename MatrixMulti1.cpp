@@ -271,22 +271,20 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
                                         int depth = p + pp;
                                         if ((k1 + depth) < K) {
                                             
-                                            __m256 a_broadcast = _mm256_broadcast_ss(&A_cache[depth][i + ii]);
+                                            __m256 b_broadcast = _mm256_broadcast_ss(&B_cache[depth][j + jj]);
                                             
                                             
-                                            __m256 b_vec = _mm256_loadu_ps(&B_cache[depth][j + jj]);
+                                            __m256 a_vec = _mm256_loadu_ps(&A_cache[depth][i + ii]);
                                             
                                             
-                                            c_vec = _mm256_fmadd_ps(a_broadcast, b_vec, c_vec);
+                                            c_vec = _mm256_fmadd_ps(a_vec, b_broadcast, c_vec);
                                         }
                                     }
-                                    
                                     
                                     _mm256_storeu_ps(&C_cache[i + ii][j + jj], c_vec);
                                 }
 
-
-                                for (int jj = 0; jj < IT_N; ++jj) {
+                                for (; jj < IT_N; ++jj) {
                                     float c_accum = 0.0f;
                                     #pragma unroll
                                     for (int pp = 0; pp < IT_K; ++pp) {
