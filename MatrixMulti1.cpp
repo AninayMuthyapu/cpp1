@@ -260,14 +260,39 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
                         for (int p = 0; p < BK && (k1 + p) < K; p += IT_K) {
                             #pragma unroll
                             for (int ii = 0; ii < IT_M; ++ii) {
-                                #pragma unroll
+                                
+                                int jj;
+                                for (jj = 0; jj + 7 < IT_N; jj += 8) {
+                                    
+                                    __m256 c_vec = _mm256_loadu_ps(&C_cache[i + ii][j + jj]);
+                                    
+                                    #pragma unroll
+                                    for (int pp = 0; pp < IT_K; ++pp) {
+                                        int depth = p + pp;
+                                        if ((k1 + depth) < K) {
+                                            
+                                            __m256 a_broadcast = _mm256_broadcast_ss(&A_cache[depth][i + ii]);
+                                            
+                                            
+                                            __m256 b_vec = _mm256_loadu_ps(&B_cache[depth][j + jj]);
+                                            
+                                            
+                                            c_vec = _mm256_fmadd_ps(a_broadcast, b_vec, c_vec);
+                                        }
+                                    }
+                                    
+                                    
+                                    _mm256_storeu_ps(&C_cache[i + ii][j + jj], c_vec);
+                                }
+
+
                                 for (int jj = 0; jj < IT_N; ++jj) {
                                     float c_accum = 0.0f;
                                     #pragma unroll
                                     for (int pp = 0; pp < IT_K; ++pp) {
                                         int depth = p + pp;
                                         if ((k1 + depth) < K) {
-                                            c_accum += A_cache[depth][i + ii] * B_cache[depth][ j + jj];
+                                            c_accum += A_cache[depth][i + ii] * B_cache[depth][j + jj];
                                         }
                                     }
                                     C_cache[i + ii][j + jj] += c_accum;
@@ -279,16 +304,10 @@ void compute_matrix_multi1(float* A,  float* B, float* C1, int M, int N, int K, 
                 for (int mm = 0; mm < BM; ++mm) {
                     int global_row = m1 + mm;
                     if (global_row < M) {
-                        int valid_cols;
-                        if (BN < (N - n1))
-                            valid_cols = BN;
-                        else
-                            valid_cols = N - n1;
-
+                        int valid_cols = (BN < (N - n1)) ? BN : (N - n1);
                         memcpy(&C1[global_row * N + n1], C_cache[mm], valid_cols * sizeof(float));
                     }
                 }
-                
             }
         }
     }
