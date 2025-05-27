@@ -20,7 +20,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
     for (int m1 = 0; m1 < M; m1 += BM) {
         for (int n1 = 0; n1 < N; n1 += BN) {
             for (int k1 = 0; k1 < K; k1 += BK) {
-                float A_cache[BM][BK]; 
+                float A_cache[BK][BM]; 
                 float B_cache[BK][BN];
                 float C_cache[BM][BN];
 
@@ -29,7 +29,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                     for (int kk = 0; kk < BK; ++kk) {
                         int global_row = m1 + mm;
                         int global_col = k1 + kk;
-                        A_cache[mm][kk] = (global_row < M && global_col < K) ? A[global_row * K + global_col] : 0.0f;
+                        A_cache[kk][mm] = (global_row < M && global_col < K) ? A[global_row * K + global_col] : 0.0f; 
                     }
                 }
 
@@ -46,7 +46,6 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                     }
                 }
 
-                
                 for (int mm = 0; mm < BM; ++mm) {
                     int global_row = m1 + mm;
                     if (global_row < M) {
@@ -63,8 +62,8 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                 for (int i = 0; i < BM && (m1 + i) < M; i += IT_M) {
                     for (int j = 0; j < BN && (n1 + j) < N; j += IT_N) {
                         if (IT_M >= 8 && IT_N >= 8) {
-                             constexpr int AVX_M = IT_M / 8;
-                             constexpr int AVX_N = IT_N;
+                            constexpr int AVX_M = IT_M / 8;
+                            constexpr int AVX_N = IT_N;
 
                             __m256 C_vec[AVX_M][AVX_N];
                             for (int mm = 0; mm < AVX_M; ++mm) {
@@ -82,7 +81,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
 
                                     __m256 A_vec[AVX_M];
                                     for (int mm = 0; mm < AVX_M; ++mm) {
-                                        A_vec[mm] = (i + mm*8 < BM) ? _mm256_loadu_ps(&A_cache[i + mm*8][depth]) : _mm256_setzero_ps();
+                                        A_vec[mm] = (i + mm*8 < BM) ? _mm256_loadu_ps(&A_cache[depth][i + mm*8]) : _mm256_setzero_ps(); 
                                     }
 
                                     __m256 B_vec[AVX_N];
@@ -113,7 +112,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                                         for (int kk = 0; kk < IT_K && (k1 + p + kk) < K; ++kk) {
                                             int depth = p + kk;
                                             if (i + mm < BM && j + nn < BN)
-                                                c_accum += A_cache[i + mm][depth] * B_cache[depth][j + nn];
+                                                c_accum += A_cache[depth][i + mm] * B_cache[depth][j + nn]; 
                                         }
                                     }
                                     if (i + mm < BM && j + nn < BN)
