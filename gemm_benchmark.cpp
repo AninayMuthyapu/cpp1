@@ -8,36 +8,36 @@
 
 using namespace std::chrono;
 
-template <int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
+
+
+#include <immintrin.h>
+
+template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
 void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, double& gflops, double& time_ms) {
-    auto start = high_resolution_clock::now();
+    auto start = std::chrono::high_resolution_clock::now();
+
     #pragma omp parallel for collapse(2) schedule(static)
     for (int m1 = 0; m1 < M; m1 += BM) {
         for (int n1 = 0; n1 < N; n1 += BN) {
             for (int k1 = 0; k1 < K; k1 += BK) {
-                float A_cache[BK][BM];
+                float A_cache[BM][BK]; 
                 float B_cache[BK][BN];
                 float C_cache[BM][BN];
+
                 
-                for (int kk = 0; kk < BK; ++kk) {
-                    for (int mm = 0; mm < BM; ++mm) {
+                for (int mm = 0; mm < BM; ++mm) {
+                    for (int kk = 0; kk < BK; ++kk) {
                         int global_row = m1 + mm;
                         int global_col = k1 + kk;
-                        if (global_row < M && global_col < K)
-                            A_cache[kk][mm] = A[global_row * K + global_col];
-                        else
-                            A_cache[kk][mm] = 0.0f;
+                        A_cache[mm][kk] = (global_row < M && global_col < K) ? A[global_row * K + global_col] : 0.0f;
                     }
                 }
+
+                
                 for (int kk = 0; kk < BK; ++kk) {
                     int global_row = k1 + kk;
                     if (global_row < K) {
-                        int valid_cols;
-                        if (BN < (N - n1))
-                            valid_cols = BN;
-                        else
-                            valid_cols = N - n1;
-
+                        int valid_cols = std::min(BN, N - n1);
                         memcpy(B_cache[kk], &B[global_row * N + n1], valid_cols * sizeof(float));
                         for (int pad = valid_cols; pad < BN; ++pad)
                             B_cache[kk][pad] = 0.0f;
@@ -46,16 +46,11 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                     }
                 }
 
-
+                
                 for (int mm = 0; mm < BM; ++mm) {
                     int global_row = m1 + mm;
                     if (global_row < M) {
-                        int valid_cols;
-                        if (BN < (N - n1))
-                            valid_cols = BN;
-                        else
-                            valid_cols = N - n1;
-
+                        int valid_cols = std::min(BN, N - n1);
                         memcpy(C_cache[mm], &C1[global_row * N + n1], valid_cols * sizeof(float));
                         for (int pad = valid_cols; pad < BN; ++pad)
                             C_cache[mm][pad] = 0.0f;
@@ -63,55 +58,77 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                         memset(C_cache[mm], 0, BN * sizeof(float));
                     }
                 }
-                
+
+               
                 for (int i = 0; i < BM && (m1 + i) < M; i += IT_M) {
                     for (int j = 0; j < BN && (n1 + j) < N; j += IT_N) {
-                        for (int p = 0; p < BK && (k1 + p) < K; p += IT_K) {
-                            #pragma unroll
-                            for (int ii = 0; ii < IT_M; ++ii) {
-                                
-                                int jj;
-                                for (jj = 0; jj + 7 < IT_N; jj += 8) {
-                                    
-                                    __m256 c_vec = _mm256_loadu_ps(&C_cache[i + ii][j + jj]);
-                                    
-                                    #pragma unroll
-                                    for (int pp = 0; pp < IT_K; ++pp) {
-                                        int depth = p + pp;
-                                        if ((k1 + depth) < K) {
-                                            
-                                            __m256 b_broadcast = _mm256_broadcast_ss(&B_cache[depth][j + jj]);
-                                            
-                                            
-                                            __m256 a_vec = _mm256_loadu_ps(&A_cache[depth][i + ii]);
-                                            
-                                            
-                                            c_vec = _mm256_fmadd_ps(a_vec, b_broadcast, c_vec);
-                                        }
-                                    }
-                                    
-                                    _mm256_storeu_ps(&C_cache[i + ii][j + jj], c_vec);
-                                }
+                        if (IT_M >= 8 && IT_N >= 8) {
+                             constexpr int AVX_M = IT_M / 8;
+                             constexpr int AVX_N = IT_N;
 
-                                for (; jj < IT_N; ++jj) {
-                                    float c_accum = 0.0f;
-                                    #pragma unroll
-                                    for (int pp = 0; pp < IT_K; ++pp) {
-                                        int depth = p + pp;
-                                        if ((k1 + depth) < K) {
-                                            c_accum += A_cache[depth][i + ii] * B_cache[depth][j + jj];
+                            __m256 C_vec[AVX_M][AVX_N];
+                            for (int mm = 0; mm < AVX_M; ++mm) {
+                                for (int nn = 0; nn < AVX_N; nn += 8) {
+                                    if (i + mm*8 < BM && j + nn < BN)
+                                        C_vec[mm][nn/8] = _mm256_loadu_ps(&C_cache[i + mm*8][j + nn]);
+                                    else
+                                        C_vec[mm][nn/8] = _mm256_setzero_ps();
+                                }
+                            }
+
+                            for (int p = 0; p < BK && (k1 + p) < K; p += IT_K) {
+                                for (int kk = 0; kk < IT_K && (k1 + p + kk) < K; ++kk) {
+                                    int depth = p + kk;
+
+                                    __m256 A_vec[AVX_M];
+                                    for (int mm = 0; mm < AVX_M; ++mm) {
+                                        A_vec[mm] = (i + mm*8 < BM) ? _mm256_loadu_ps(&A_cache[i + mm*8][depth]) : _mm256_setzero_ps();
+                                    }
+
+                                    __m256 B_vec[AVX_N];
+                                    for (int nn = 0; nn < AVX_N; ++nn) {
+                                        B_vec[nn] = (j + nn < BN) ? _mm256_broadcast_ss(&B_cache[depth][j + nn]) : _mm256_setzero_ps();
+                                    }
+
+                                    for (int mm = 0; mm < AVX_M; ++mm) {
+                                        for (int nn = 0; nn < AVX_N; ++nn) {
+                                            C_vec[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_vec[mm][nn]);
                                         }
                                     }
-                                    C_cache[i + ii][j + jj] += c_accum;
+                                }
+                            }
+
+                            for (int mm = 0; mm < AVX_M; ++mm) {
+                                for (int nn = 0; nn < AVX_N; nn += 8) {
+                                    if (i + mm*8 < BM && j + nn < BN)
+                                        _mm256_storeu_ps(&C_cache[i + mm*8][j + nn], C_vec[mm][nn/8]);
+                                }
+                            }
+                        } else {
+                            // Scalar fallback for IT_M < 8 or IT_N < 8
+                            for (int mm = 0; mm < IT_M; ++mm) {
+                                for (int nn = 0; nn < IT_N; ++nn) {
+                                    float c_accum = 0.0f;
+                                    for (int p = 0; p < BK && (k1 + p) < K; p += IT_K) {
+                                        for (int kk = 0; kk < IT_K && (k1 + p + kk) < K; ++kk) {
+                                            int depth = p + kk;
+                                            if (i + mm < BM && j + nn < BN)
+                                                c_accum += A_cache[i + mm][depth] * B_cache[depth][j + nn];
+                                        }
+                                    }
+                                    if (i + mm < BM && j + nn < BN)
+                                        C_cache[i + mm][j + nn] += c_accum;
                                 }
                             }
                         }
                     }
                 }
+
+                // Store C tile
                 for (int mm = 0; mm < BM; ++mm) {
                     int global_row = m1 + mm;
                     if (global_row < M) {
-                        int valid_cols = (BN < (N - n1)) ? BN : (N - n1);
+                        int valid_cols = std::min(BN, N - n1);
                         memcpy(&C1[global_row * N + n1], C_cache[mm], valid_cols * sizeof(float));
                     }
                 }
@@ -119,9 +136,9 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
         }
     }
 
-    auto end = high_resolution_clock::now();
-    time_ms = duration<double, std::milli>(end - start).count();
-    gflops = (2.0 * M * N * K / time_ms) / 1e6;
+    auto end = std::chrono::high_resolution_clock::now();
+    time_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    gflops = (2.0 * M * N * K) / (time_ms * 1e6); // Fixed formula
 }
 
 
@@ -226,11 +243,11 @@ int main(int argc, char* argv[]) {
     int idx = 0;
 
    
-    testBlockSize3<64, 64, 64, 2, 2, 2>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<64, 64, 32, 4, 2, 2>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<64, 64, 16, 4, 8, 4>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<64, 32, 32, 2, 2, 2>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<32, 64, 32, 4, 2, 4>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
+    testBlockSize3<64, 64, 64, 8, 8, 8>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
+    testBlockSize3<64, 64, 32, 8, 1, 8>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
+    testBlockSize3<64, 64, 16, 8, 8, 8>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
+    testBlockSize3<64, 32, 32, 8, 8, 8>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
+    testBlockSize3<32, 64, 32, 8, 1, 1>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
     testBlockSize3<32, 32, 32, 2, 2, 2>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
     testBlockSize3<128, 64, 64, 8, 2, 2>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
     testBlockSize3<128, 64, 32, 8, 2, 2>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
