@@ -105,7 +105,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                                 }
                             }
                         } else {
-                            // Scalar fallback for IT_M < 8 or IT_N < 8
+                            
                             for (int mm = 0; mm < IT_M; ++mm) {
                                 for (int nn = 0; nn < IT_N; ++nn) {
                                     float c_accum = 0.0f;
@@ -124,7 +124,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                     }
                 }
 
-                // Store C tile
+               
                 for (int mm = 0; mm < BM; ++mm) {
                     int global_row = m1 + mm;
                     if (global_row < M) {
@@ -138,7 +138,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
 
     auto end = std::chrono::high_resolution_clock::now();
     time_ms = std::chrono::duration<double, std::milli>(end - start).count();
-    gflops = (2.0 * M * N * K) / (time_ms * 1e6); // Fixed formula
+    gflops = (2.0 * M * N * K) / (time_ms * 1e6); 
 }
 
 
