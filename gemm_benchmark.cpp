@@ -8,6 +8,7 @@
 #include "AnyOption/AnyOption/anyoption.h"
 
 using namespace std::chrono;
+using namespace std;
 
 #include <immintrin.h>
 
@@ -25,7 +26,7 @@ void compute_reference(float* A, float* B, float* C, int M, int N, int K) {
 
 bool verify_result(float* C_test, float* C_ref, int M, int N, float tolerance = 1e-3f) {
     for (int i = 0; i < M * N; ++i) {
-        if (std::abs(C_test[i] - C_ref[i]) > tolerance) {
+        if (abs(C_test[i] - C_ref[i]) > tolerance) {
             return false;
         }
     }
@@ -63,7 +64,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                 for (int kk = 0; kk < BK; ++kk) {
                     int global_row = k1 + kk;
                     if (global_row < K) {
-                        int valid_cols = std::min(BN, N - n1);
+                        int valid_cols = min(BN, N - n1);
                         memcpy(B_cache[kk], &B[global_row * N + n1], valid_cols * sizeof(float));
                         for (int pad = valid_cols; pad < BN; ++pad)
                             B_cache[kk][pad] = 0.0f;
@@ -171,7 +172,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
             for (int mm = 0; mm < BM; ++mm) {
                 int global_row = m1 + mm;
                 if (global_row < M) {
-                    int valid_cols = std::min(BN, N - n1);
+                    int valid_cols = min(BN, N - n1);
                     memcpy(&C1[global_row * N + n1], C_cache[mm], valid_cols * sizeof(float));
                 }
             }
@@ -189,11 +190,11 @@ void testBlockSize3(float* A, float* B, float* C1, float* C_ref, int M, int N, i
     double total_time_ms = 0.0;
 
     
-    std::vector<float> C_copy(M * N);
+    vector<float> C_copy(M * N);
     
     for (int i = 0; i < iterations; ++i) {
         
-        std::fill(C_copy.begin(), C_copy.end(), 0.0f);
+        fill(C_copy.begin(), C_copy.end(), 0.0f);
         
         double gflops, time_ms;
         compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K>(A, B, C_copy.data(), M, N, K, gflops, time_ms);
@@ -232,7 +233,7 @@ void run_mkl_sgemm(int M, int N, int K, float alpha, float beta, float* A, float
     cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
                 M, N, K, alpha, A, K, B, N, beta, C, N);
     auto end = high_resolution_clock::now();
-    time_ms = duration<double, std::milli>(end - start).count();
+    time_ms = duration<double, milli>(end - start).count();
     gflops = (2.0 * M * N * K / time_ms) / 1e6;
     std::cout << "MKL SGEMM Time: " << time_ms << " ms, GFLOPS: " << gflops << std::endl;
 }
@@ -246,9 +247,9 @@ void run_aocl_sgemm(int M, int N, int K, float alpha, float beta, float* A, floa
     cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
                 M, N, K, alpha, A, K, B, N, beta, C, N);
     auto end = high_resolution_clock::now();
-    time_ms = duration<double, std::milli>(end - start).count();
+    time_ms = duration<double, milli>(end - start).count();
     gflops = (2.0 * M * N * K / time_ms) / 1e6;
-    std::cout << "AOCL SGEMM Time: " << time_ms << " ms, GFLOPS: " << gflops << std::endl;
+    cout << "AOCL SGEMM Time: " << time_ms << " ms, GFLOPS: " << gflops << std::endl;
 }
 #endif
 
@@ -266,19 +267,19 @@ int main(int argc, char* argv[]) {
 
     if (opt.getFlag("help") || !opt.getValue("m") || !opt.getValue("n") ||
         !opt.getValue("k") || !opt.getValue("itr")) {
-        std::cout << "Usage: " << argv[0] << " --m <rows> --n <cols> --k <inner> --itr <iterations>\n";
+        cout << "Usage: " << argv[0] << " --m <rows> --n <cols> --k <inner> --itr <iterations>\n";
         return 1;
     }
 
-    int M = std::atoi(opt.getValue("m"));
-    int N = std::atoi(opt.getValue("n"));
-    int K = std::atoi(opt.getValue("k"));
-    int itr = std::atoi(opt.getValue("itr"));
+    int M = atoi(opt.getValue("m"));
+    int N = atoi(opt.getValue("n"));
+    int K = atoi(opt.getValue("k"));
+    int itr = atoi(opt.getValue("itr"));
 
     const float alpha = 1.0f, beta = 0.0f;
-    std::vector<float> A(M * K), B(K * N), C_ref(M * N, 0.0f), C_test(M * N, 0.0f);
-    std::default_random_engine gen;
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+    vector<float> A(M * K), B(K * N), C_ref(M * N, 0.0f), C_test(M * N, 0.0f);
+    default_random_engine gen;
+    uniform_real_distribution<float> dist(0.0f, 1.0f);
     for (auto& x : A) x = dist(gen);
     for (auto& x : B) x = dist(gen);
 
@@ -319,17 +320,17 @@ int main(int argc, char* argv[]) {
     }
 
 #ifdef USE_MKL
-    std::vector<float> C_mkl(M * N, 0.0f);
+    vector<float> C_mkl(M * N, 0.0f);
     double gflops_mkl = 0.0, time_mkl = 0.0;
     run_mkl_sgemm(M, N, K, alpha, beta, A.data(), B.data(), C_mkl.data(), gflops_mkl, time_mkl);
-    std::cout << "\nMKL Time: " << time_mkl << " ms | GFLOPs: " << gflops_mkl << std::endl;
+    cout << "\nMKL Time: " << time_mkl << " ms | GFLOPs: " << gflops_mkl << std::endl;
 #endif
 
 #ifdef USE_BASELINE
-    std::vector<float> C_base(M * N, 0.0f);
+    vector<float> C_base(M * N, 0.0f);
     double gflops_base = 0.0, time_base = 0.0;
     run_baseline_sgemm(M, N, K, A.data(), B.data(), C_base.data(), gflops_base, time_base);
-    std::cout << "Baseline Time: " << time_base << " ms | GFLOPs: " << gflops_base << std::endl;
+    cout << "Baseline Time: " << time_base << " ms | GFLOPs: " << gflops_base << std::endl;
 #endif
 
     return 0;
