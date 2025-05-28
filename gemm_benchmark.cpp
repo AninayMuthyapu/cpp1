@@ -46,14 +46,10 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
             for (int mm = 0; mm < BM; ++mm) {
                 for (int nn = 0; nn < BN; ++nn) {
                     C_cache[mm][nn] = 0.0f;
-                 
                 }
             }  
 
-            
             for (int k1 = 0; k1 < K; k1 += BK) {
-               
-
                 
                 for (int mm = 0; mm < BM; ++mm) {
                     for (int kk = 0; kk < BK; ++kk) {
@@ -76,53 +72,82 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                     }
                 }
 
-               
+                
                 for (int i = 0; i < BM && (m1 + i) < M; i += IT_M) {
                     for (int j = 0; j < BN && (n1 + j) < N; j += IT_N) {
-                        if (IT_M >= 8 && IT_N >= 8) {
-                            constexpr int AVX_M = IT_M / 8;
-                            constexpr int AVX_N = IT_N;
-
-                            __m256 C_vec[AVX_M][AVX_N];
+                        if (IT_M >= 8 && IT_M % 8 == 0) {
+                            constexpr int AVX_M = IT_M / 8;  
+                            
+                            __m256 C_vec[AVX_M][IT_N];
                             for (int mm = 0; mm < AVX_M; ++mm) {
-                                for (int nn = 0; nn < AVX_N; nn += 8) {
-                                    if (i + mm*8 < BM && j + nn < BN)
-                                        C_vec[mm][nn/8] = _mm256_loadu_ps(&C_cache[i + mm*8][j + nn]);
-                                    else
-                                        C_vec[mm][nn/8] = _mm256_setzero_ps();
+                                for (int nn = 0; nn < IT_N; ++nn) {
+                                    if (i + mm*8 < BM && j + nn < BN) {
+                                        
+                                        float temp[8];
+                                        for (int k = 0; k < 8; ++k) {
+                                            temp[k] = (i + mm*8 + k < BM) ? C_cache[i + mm*8 + k][j + nn] : 0.0f;
+                                        }
+                                        C_vec[mm][nn] = _mm256_loadu_ps(temp);
+                                    } else {
+                                        C_vec[mm][nn] = _mm256_setzero_ps();
+                                    }
                                 }
                             }
 
+                            
                             for (int p = 0; p < BK && (k1 + p) < K; p += IT_K) {
                                 for (int kk = 0; kk < IT_K && (k1 + p + kk) < K; ++kk) {
                                     int depth = p + kk;
 
+                                    
                                     __m256 A_vec[AVX_M];
                                     for (int mm = 0; mm < AVX_M; ++mm) {
-                                        A_vec[mm] = (i + mm*8 < BM) ? _mm256_loadu_ps(&A_cache[depth][i + mm*8]) : _mm256_setzero_ps(); 
+                                        if (i + mm*8 < BM) {
+                                            
+                                            float temp[8];
+                                            for (int k = 0; k < 8; ++k) {
+                                                temp[k] = (i + mm*8 + k < BM) ? A_cache[depth][i + mm*8 + k] : 0.0f;
+                                            }
+                                            A_vec[mm] = _mm256_loadu_ps(temp);
+                                        } else {
+                                            A_vec[mm] = _mm256_setzero_ps();
+                                        }
                                     }
 
-                                    __m256 B_vec[AVX_N];
-                                    for (int nn = 0; nn < AVX_N; ++nn) {
-                                        B_vec[nn] = (j + nn < BN) ? _mm256_broadcast_ss(&B_cache[depth][j + nn]) : _mm256_setzero_ps();
-                                    }
+                                    
+                                    for (int nn = 0; nn < IT_N; ++nn) {
+                                        __m256 B_broadcast;
+                                        if (j + nn < BN) {
+                                            B_broadcast = _mm256_broadcast_ss(&B_cache[depth][j + nn]);
+                                        } else {
+                                            B_broadcast = _mm256_setzero_ps();
+                                        }
 
-                                    for (int mm = 0; mm < AVX_M; ++mm) {
-                                        for (int nn = 0; nn < AVX_N; ++nn) {
-                                            C_vec[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_vec[mm][nn]);
+                                        
+                                        for (int mm = 0; mm < AVX_M; ++mm) {
+                                            C_vec[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_broadcast, C_vec[mm][nn]);
                                         }
                                     }
                                 }
                             }
 
+                            
                             for (int mm = 0; mm < AVX_M; ++mm) {
-                                for (int nn = 0; nn < AVX_N; nn += 8) {
-                                    if (i + mm*8 < BM && j + nn < BN)
-                                        _mm256_storeu_ps(&C_cache[i + mm*8][j + nn], C_vec[mm][nn/8]);
+                                for (int nn = 0; nn < IT_N; ++nn) {
+                                    if (i + mm*8 < BM && j + nn < BN) {
+                                        
+                                        float temp[8];
+                                        _mm256_storeu_ps(temp, C_vec[mm][nn]);
+                                        for (int k = 0; k < 8; ++k) {
+                                            if (i + mm*8 + k < BM) {
+                                                C_cache[i + mm*8 + k][j + nn] = temp[k];
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         } else {
-                           
+                            
                             for (int mm = 0; mm < IT_M; ++mm) {
                                 for (int nn = 0; nn < IT_N; ++nn) {
                                     float c_accum = 0.0f;
@@ -140,14 +165,14 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                         }
                     }
                 }
+            }
 
-                
-                for (int mm = 0; mm < BM; ++mm) {
-                    int global_row = m1 + mm;
-                    if (global_row < M) {
-                        int valid_cols = std::min(BN, N - n1);
-                        memcpy(&C1[global_row * N + n1], C_cache[mm], valid_cols * sizeof(float));
-                    }
+            
+            for (int mm = 0; mm < BM; ++mm) {
+                int global_row = m1 + mm;
+                if (global_row < M) {
+                    int valid_cols = std::min(BN, N - n1);
+                    memcpy(&C1[global_row * N + n1], C_cache[mm], valid_cols * sizeof(float));
                 }
             }
         }
@@ -263,18 +288,18 @@ int main(int argc, char* argv[]) {
     int idx = 0;
 
    
-    testBlockSize3<64, 64, 64, 8, 8, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize3<64, 64, 32, 8, 1, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize3<64, 64, 16, 8, 8, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize3<64, 32, 32, 8, 8, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize3<32, 64, 32, 8, 1, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize3<32, 32, 32, 2, 2, 2>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize3<128, 64, 64, 8, 2, 2>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize3<128, 64, 32, 8, 2, 2>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize3<128, 64, 16, 8, 8, 4>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize3<128, 32, 32, 8, 8, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize3<128, 64, 32, 8, 1, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize3<128, 128, 128, 8, 8, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize3<128, 128, 128, 16, 4, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    // testBlockSize3<64, 64, 32, 8, 1, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    // testBlockSize3<64, 64, 16, 8, 8, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    // testBlockSize3<64, 32, 32, 8, 8, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    // testBlockSize3<32, 64, 32, 8, 1, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    // testBlockSize3<32, 32, 32, 2, 2, 2>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    // testBlockSize3<128, 64, 64, 8, 2, 2>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    // testBlockSize3<128, 64, 32, 8, 2, 2>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    // testBlockSize3<128, 64, 16, 8, 8, 4>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    // testBlockSize3<128, 32, 32, 8, 8, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    // testBlockSize3<128, 64, 32, 8, 1, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize3<128, 128, 128, 16, 2, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
 
     
     float best_gflops = 0.0;
