@@ -4,13 +4,33 @@
 #include <chrono>
 #include <cstring>
 #include <immintrin.h>
+#include <cmath>
 #include "AnyOption/AnyOption/anyoption.h"
 
 using namespace std::chrono;
 
-
-
 #include <immintrin.h>
+
+void compute_reference(float* A, float* B, float* C, int M, int N, int K) {
+    for (int i = 0; i < M; ++i) {
+        for (int j = 0; j < N; ++j) {
+            float sum = 0.0f;
+            for (int k = 0; k < K; ++k) {
+                sum += A[i * K + k] * B[k * N + j];
+            }
+            C[i * N + j] = sum;
+        }
+    }
+}
+
+bool verify_result(float* C_test, float* C_ref, int M, int N, float tolerance = 1e-3f) {
+    for (int i = 0; i < M * N; ++i) {
+        if (std::abs(C_test[i] - C_ref[i]) > tolerance) {
+            return false;
+        }
+    }
+    return true;
+}
 
 template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
 void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, double& gflops, double& time_ms) {
@@ -20,27 +40,23 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
     for (int m1 = 0; m1 < M; m1 += BM) {
         for (int n1 = 0; n1 < N; n1 += BN) {
             float C_cache[BM][BN];
-            float A_cache[BK][BM]; // Transposed A cache
+            float A_cache[BK][BM]; 
             float B_cache[BK][BN];
-
             
-            // // Initialize C tile to zero
-            // for (int mm = 0; mm < BM; ++mm) {
-            //     for (int nn = 0; nn < BN; ++nn) {
-            //         C_cache[mm][nn] = 0.0f;
-            //     }
-            // }
             
+            for (int mm = 0; mm < BM; ++mm) {
+                for (int nn = 0; nn < BN; ++nn) {
+                    C_cache[mm][nn] = 0.0f;
+                 
+                }
+            }     
             for (int k1 = 0; k1 < K; k1 += BK) {
-                float A_cache[BK][BM]; // Transposed A cache
-                float B_cache[BK][BN];
 
-                
                 for (int mm = 0; mm < BM; ++mm) {
                     for (int kk = 0; kk < BK; ++kk) {
                         int global_row = m1 + mm;
                         int global_col = k1 + kk;
-                        A_cache[kk][mm] = (global_row < M && global_col < K) ? A[global_row * K + global_col] : 0.0f; // Transposed storage
+                        A_cache[kk][mm] = (global_row < M && global_col < K) ? A[global_row * K + global_col] : 0.0f; 
                     }
                 }
 
@@ -57,7 +73,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                     }
                 }
 
-                // Main computation
+                
                 for (int i = 0; i < BM && (m1 + i) < M; i += IT_M) {
                     for (int j = 0; j < BN && (n1 + j) < N; j += IT_N) {
                         if (IT_M >= 8 && IT_N >= 8) {
@@ -103,7 +119,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                                 }
                             }
                         } else {
-                            // Scalar fallback for IT_M < 8 or IT_N < 8
+                            
                             for (int mm = 0; mm < IT_M; ++mm) {
                                 for (int nn = 0; nn < IT_N; ++nn) {
                                     float c_accum = 0.0f;
@@ -111,7 +127,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                                         for (int kk = 0; kk < IT_K && (k1 + p + kk) < K; ++kk) {
                                             int depth = p + kk;
                                             if (i + mm < BM && j + nn < BN)
-                                                c_accum += A_cache[depth][i + mm] * B_cache[depth][j + nn]; // Access transposed A
+                                                c_accum += A_cache[depth][i + mm] * B_cache[depth][j + nn]; 
                                         }
                                     }
                                     if (i + mm < BM && j + nn < BN)
@@ -121,14 +137,14 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                         }
                     }
                 }
+            }
 
-                // Store C tile
-                for (int mm = 0; mm < BM; ++mm) {
-                    int global_row = m1 + mm;
-                    if (global_row < M) {
-                        int valid_cols = std::min(BN, N - n1);
-                        memcpy(&C1[global_row * N + n1], C_cache[mm], valid_cols * sizeof(float));
-                    }
+            
+            for (int mm = 0; mm < BM; ++mm) {
+                int global_row = m1 + mm;
+                if (global_row < M) {
+                    int valid_cols = std::min(BN, N - n1);
+                    memcpy(&C1[global_row * N + n1], C_cache[mm], valid_cols * sizeof(float));
                 }
             }
         }
@@ -139,9 +155,8 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
     gflops = (2.0 * M * N * K) / (time_ms * 1e6); 
 }
 
-
 template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
-void testBlockSize3(float* A, float* B, float* C1, int M, int N, int K, int iterations, float results1[][7], int& idx) {
+void testBlockSize3(float* A, float* B, float* C1, float* C_ref, int M, int N, int K, int iterations, float results1[][8], int& idx) {
     double total_gflops = 0.0;
     double total_time_ms = 0.0;
 
@@ -163,6 +178,7 @@ void testBlockSize3(float* A, float* B, float* C1, int M, int N, int K, int iter
 
     float avg_gflops = total_gflops / iterations;
     float avg_time_ms = total_time_ms / iterations;
+    bool is_correct = verify_result(C1, C_ref, M, N);
 
     
     results1[idx][0] = BM;
@@ -172,11 +188,12 @@ void testBlockSize3(float* A, float* B, float* C1, int M, int N, int K, int iter
     results1[idx][4] = IT_N;
     results1[idx][5] = IT_K;
     results1[idx][6] = avg_gflops;
+    results1[idx][7] = is_correct ? 1.0f : 0.0f;
     idx++;
 
     
-    printf("BMxBNxBK = %dx%dx%d | IT_MxN_K = %dx%dx%d | Time: %.3f ms | Avg GFLOP/s: %.3f\n",
-           BM, BN, BK, IT_M, IT_N, IT_K, avg_time_ms, avg_gflops);
+    printf("BMxBNxBK = %dx%dx%d | IT_MxN_K = %dx%dx%d | Time: %.3f ms | Avg GFLOP/s: %.3f | %s\n",
+           BM, BN, BK, IT_M, IT_N, IT_K, avg_time_ms, avg_gflops, is_correct ? "PASS" : "FAIL");
 }
 
 #ifdef USE_MKL
@@ -193,19 +210,7 @@ void run_mkl_sgemm(int M, int N, int K, float alpha, float beta, float* A, float
 }
 #endif
 
-#ifdef USE_AOCL
-#include <cblas.h>
-void run_aocl_sgemm(int M, int N, int K, float alpha, float beta, float* A, float* B, float* C,
-                    double& gflops, double& time_ms) {
-    auto start = high_resolution_clock::now();
-    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                M, N, K, alpha, A, K, B, N, beta, C, N);
-    auto end = high_resolution_clock::now();
-    time_ms = duration<double, std::milli>(end - start).count();
-    gflops = (2.0 * M * N * K / time_ms) / 1e6;
-    std::cout << "AOCL SGEMM Time: " << time_ms << " ms, GFLOPS: " << gflops << std::endl;
-}
-#endif
+
 
 int main(int argc, char* argv[]) {
     srand(time(0));
@@ -237,28 +242,30 @@ int main(int argc, char* argv[]) {
     for (auto& x : A) x = dist(gen);
     for (auto& x : B) x = dist(gen);
 
-    float results[100][7];  
+    compute_reference(A.data(), B.data(), C_ref.data(), M, N, K);
+
+    float results[100][8];  
     int idx = 0;
 
    
-    testBlockSize3<64, 64, 64, 8, 8, 8>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<64, 64, 32, 8, 1, 8>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<64, 64, 16, 8, 8, 8>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<64, 32, 32, 8, 8, 8>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<32, 64, 32, 8, 1, 1>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<32, 32, 32, 2, 2, 2>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<128, 64, 64, 8, 2, 2>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<128, 64, 32, 8, 2, 2>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<128, 64, 16, 8, 8, 4>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<128, 32, 32, 8, 8, 1>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<128, 64, 32, 8, 1, 8>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
-    testBlockSize3<128, 128, 128, 8, 8, 8>(A.data(), B.data(), C_test.data(), M, N, K, itr, results, idx);
+    testBlockSize3<64, 64, 64, 8, 8, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize3<64, 64, 32, 8, 1, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize3<64, 64, 16, 8, 8, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize3<64, 32, 32, 8, 8, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize3<32, 64, 32, 8, 1, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize3<32, 32, 32, 2, 2, 2>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize3<128, 64, 64, 8, 2, 2>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize3<128, 64, 32, 8, 2, 2>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize3<128, 64, 16, 8, 8, 4>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize3<128, 32, 32, 8, 8, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize3<128, 64, 32, 8, 1, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize3<128, 128, 128, 8, 8, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
 
     
     float best_gflops = 0.0;
     int best_idx = -1;
     for (int i = 0; i < idx; ++i) {
-        if (results[i][6] > best_gflops) {
+        if (results[i][6] > best_gflops && results[i][7] == 1.0f) {
             best_gflops = results[i][6];
             best_idx = i;
         }
@@ -288,7 +295,6 @@ int main(int argc, char* argv[]) {
     return 0;
 
 }
-
 // Compilation command:
 // g++ -O3 -march=native -fopenmp -DUSE_MKL gemm_benchmark.cpp AnyOption/AnyOption/anyoption.cpp \
 //     -I${MKLROOT}/include -L${MKLROOT}/lib/intel64 \
@@ -300,3 +306,4 @@ int main(int argc, char* argv[]) {
 
 
 
+//source /opt/intel/oneapi/setvars.sh
