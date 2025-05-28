@@ -19,17 +19,28 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
     #pragma omp parallel for collapse(2) schedule(static)
     for (int m1 = 0; m1 < M; m1 += BM) {
         for (int n1 = 0; n1 < N; n1 += BN) {
+            float C_cache[BM][BN];
+            float A_cache[BK][BM]; // Transposed A cache
+            float B_cache[BK][BN];
+
+            
+            // // Initialize C tile to zero
+            // for (int mm = 0; mm < BM; ++mm) {
+            //     for (int nn = 0; nn < BN; ++nn) {
+            //         C_cache[mm][nn] = 0.0f;
+            //     }
+            // }
+            
             for (int k1 = 0; k1 < K; k1 += BK) {
-                float A_cache[BK][BM]; 
+                float A_cache[BK][BM]; // Transposed A cache
                 float B_cache[BK][BN];
-                float C_cache[BM][BN];
 
                 
                 for (int mm = 0; mm < BM; ++mm) {
                     for (int kk = 0; kk < BK; ++kk) {
                         int global_row = m1 + mm;
                         int global_col = k1 + kk;
-                        A_cache[kk][mm] = (global_row < M && global_col < K) ? A[global_row * K + global_col] : 0.0f; 
+                        A_cache[kk][mm] = (global_row < M && global_col < K) ? A[global_row * K + global_col] : 0.0f; // Transposed storage
                     }
                 }
 
@@ -46,19 +57,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                     }
                 }
 
-                for (int mm = 0; mm < BM; ++mm) {
-                    int global_row = m1 + mm;
-                    if (global_row < M) {
-                        int valid_cols = std::min(BN, N - n1);
-                        memcpy(C_cache[mm], &C1[global_row * N + n1], valid_cols * sizeof(float));
-                        for (int pad = valid_cols; pad < BN; ++pad)
-                            C_cache[mm][pad] = 0.0f;
-                    } else {
-                        memset(C_cache[mm], 0, BN * sizeof(float));
-                    }
-                }
-
-               
+                // Main computation
                 for (int i = 0; i < BM && (m1 + i) < M; i += IT_M) {
                     for (int j = 0; j < BN && (n1 + j) < N; j += IT_N) {
                         if (IT_M >= 8 && IT_N >= 8) {
@@ -81,7 +80,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
 
                                     __m256 A_vec[AVX_M];
                                     for (int mm = 0; mm < AVX_M; ++mm) {
-                                        A_vec[mm] = (i + mm*8 < BM) ? _mm256_loadu_ps(&A_cache[depth][i + mm*8]) : _mm256_setzero_ps(); 
+                                        A_vec[mm] = (i + mm*8 < BM) ? _mm256_loadu_ps(&A_cache[depth][i + mm*8]) : _mm256_setzero_ps(); // Access transposed A
                                     }
 
                                     __m256 B_vec[AVX_N];
@@ -104,7 +103,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                                 }
                             }
                         } else {
-                            
+                            // Scalar fallback for IT_M < 8 or IT_N < 8
                             for (int mm = 0; mm < IT_M; ++mm) {
                                 for (int nn = 0; nn < IT_N; ++nn) {
                                     float c_accum = 0.0f;
@@ -112,7 +111,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                                         for (int kk = 0; kk < IT_K && (k1 + p + kk) < K; ++kk) {
                                             int depth = p + kk;
                                             if (i + mm < BM && j + nn < BN)
-                                                c_accum += A_cache[depth][i + mm] * B_cache[depth][j + nn]; 
+                                                c_accum += A_cache[depth][i + mm] * B_cache[depth][j + nn]; // Access transposed A
                                         }
                                     }
                                     if (i + mm < BM && j + nn < BN)
@@ -123,7 +122,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                     }
                 }
 
-               
+                // Store C tile
                 for (int mm = 0; mm < BM; ++mm) {
                     int global_row = m1 + mm;
                     if (global_row < M) {
