@@ -42,16 +42,19 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
             float C_cache[BM][BN];
             float A_cache[BK][BM]; 
             float B_cache[BK][BN];
-            
-            
+
             for (int mm = 0; mm < BM; ++mm) {
                 for (int nn = 0; nn < BN; ++nn) {
                     C_cache[mm][nn] = 0.0f;
                  
                 }
-            }     
-            for (int k1 = 0; k1 < K; k1 += BK) {
+            }  
 
+            
+            for (int k1 = 0; k1 < K; k1 += BK) {
+               
+
+                
                 for (int mm = 0; mm < BM; ++mm) {
                     for (int kk = 0; kk < BK; ++kk) {
                         int global_row = m1 + mm;
@@ -73,7 +76,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                     }
                 }
 
-                
+               
                 for (int i = 0; i < BM && (m1 + i) < M; i += IT_M) {
                     for (int j = 0; j < BN && (n1 + j) < N; j += IT_N) {
                         if (IT_M >= 8 && IT_N >= 8) {
@@ -96,7 +99,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
 
                                     __m256 A_vec[AVX_M];
                                     for (int mm = 0; mm < AVX_M; ++mm) {
-                                        A_vec[mm] = (i + mm*8 < BM) ? _mm256_loadu_ps(&A_cache[depth][i + mm*8]) : _mm256_setzero_ps(); // Access transposed A
+                                        A_vec[mm] = (i + mm*8 < BM) ? _mm256_loadu_ps(&A_cache[depth][i + mm*8]) : _mm256_setzero_ps(); 
                                     }
 
                                     __m256 B_vec[AVX_N];
@@ -119,7 +122,7 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                                 }
                             }
                         } else {
-                            
+                           
                             for (int mm = 0; mm < IT_M; ++mm) {
                                 for (int nn = 0; nn < IT_N; ++nn) {
                                     float c_accum = 0.0f;
@@ -137,14 +140,14 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                         }
                     }
                 }
-            }
 
-            
-            for (int mm = 0; mm < BM; ++mm) {
-                int global_row = m1 + mm;
-                if (global_row < M) {
-                    int valid_cols = std::min(BN, N - n1);
-                    memcpy(&C1[global_row * N + n1], C_cache[mm], valid_cols * sizeof(float));
+                
+                for (int mm = 0; mm < BM; ++mm) {
+                    int global_row = m1 + mm;
+                    if (global_row < M) {
+                        int valid_cols = std::min(BN, N - n1);
+                        memcpy(&C1[global_row * N + n1], C_cache[mm], valid_cols * sizeof(float));
+                    }
                 }
             }
         }
@@ -210,7 +213,19 @@ void run_mkl_sgemm(int M, int N, int K, float alpha, float beta, float* A, float
 }
 #endif
 
-
+#ifdef USE_AOCL
+#include <cblas.h>
+void run_aocl_sgemm(int M, int N, int K, float alpha, float beta, float* A, float* B, float* C,
+                    double& gflops, double& time_ms) {
+    auto start = high_resolution_clock::now();
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                M, N, K, alpha, A, K, B, N, beta, C, N);
+    auto end = high_resolution_clock::now();
+    time_ms = duration<double, std::milli>(end - start).count();
+    gflops = (2.0 * M * N * K / time_ms) / 1e6;
+    std::cout << "AOCL SGEMM Time: " << time_ms << " ms, GFLOPS: " << gflops << std::endl;
+}
+#endif
 
 int main(int argc, char* argv[]) {
     srand(time(0));
