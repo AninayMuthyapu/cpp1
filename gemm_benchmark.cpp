@@ -234,24 +234,12 @@ void run_mkl_sgemm(int M, int N, int K, float alpha, float beta, float* A, float
                 M, N, K, alpha, A, K, B, N, beta, C, N);
     auto end = high_resolution_clock::now();
     time_ms = duration<double, milli>(end - start).count();
-    gflops = (2.0 * M * N * K / time_ms) / 1e6;
+    gflops = (2.0 * M * N * K / (time_ms / 1000.0)) / 1e9;
     std::cout << "MKL SGEMM Time: " << time_ms << " ms, GFLOPS: " << gflops << std::endl;
 }
 #endif
 
-#ifdef USE_AOCL
-#include <cblas.h>
-void run_aocl_sgemm(int M, int N, int K, float alpha, float beta, float* A, float* B, float* C,
-                    double& gflops, double& time_ms) {
-    auto start = high_resolution_clock::now();
-    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                M, N, K, alpha, A, K, B, N, beta, C, N);
-    auto end = high_resolution_clock::now();
-    time_ms = duration<double, milli>(end - start).count();
-    gflops = (2.0 * M * N * K / time_ms) / 1e6;
-    cout << "AOCL SGEMM Time: " << time_ms << " ms, GFLOPS: " << gflops << std::endl;
-}
-#endif
+
 
 int main(int argc, char* argv[]) {
     srand(time(0));
