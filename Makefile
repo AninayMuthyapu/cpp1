@@ -1,18 +1,2 @@
-CXX = g++
-CXXFLAGS = -Wall -O2 -fopenmp
-
-TARGET = cpp1.exe
-SRCS = MatrixMulti1.cpp AnyOption/anyoption.cpp
-OBJS = $(SRCS:.cpp=.o)
-
-all: $(TARGET)
-
-$(TARGET): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^
-
-
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-clean:
-	del /Q $(subst /,\,$(TARGET)) $(subst /,\,$(OBJS))
+gemm: gemm_benchmark.cpp
+	g++ -O3 -march=native -fopenmp -DUSE_MKL gemm_benchmark.cpp AnyOption/anyoption.cpp -I${MKLROOT}/include -L${MKLROOT}/lib/intel64 -I/usr/include/mkl -Wl,--start-group -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -Wl,--end-group -lpthread -lm -ldl -o gemm_mkl
