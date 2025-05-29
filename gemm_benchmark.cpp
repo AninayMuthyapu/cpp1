@@ -9,7 +9,7 @@
 #include <cblas.h> 
 #include <omp.h>   
 #include <iomanip>
-#include "AnyOption/AnyOption/anyoption.h"
+#include "AnyOption/anyoption.h"
 
 
 using namespace std;
@@ -284,4 +284,11 @@ int main(int argc, char* argv[]) {
 //                  << " | Avg GFLOP/s: " << results[best_idx][6] << endl;
 //         }
 //     }
+
 //
+
+
+//     auto end = high_resolution_clock::now();
+//     time_ms = duration<double, milli>(end - start).count();
+//     gflops = (2.0 * M * N * K) / (time_ms * 1e6);
+// }
