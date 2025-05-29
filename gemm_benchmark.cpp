@@ -4,13 +4,13 @@
 #include <chrono>
 #include <cstring>
 #include <immintrin.h>
-#include <cmath>
+#include <mkl.h>
+#include <iomanip>
 #include "AnyOption/AnyOption/anyoption.h"
 
-using namespace std::chrono;
 using namespace std;
+using namespace std::chrono;
 
-#include <immintrin.h>
 
 void compute_reference(float* A, float* B, float* C, int M, int N, int K) {
     for (int i = 0; i < M; ++i) {
@@ -24,144 +24,69 @@ void compute_reference(float* A, float* B, float* C, int M, int N, int K) {
     }
 }
 
+
 bool verify_result(float* C_test, float* C_ref, int M, int N, float tolerance = 1e-3f) {
     for (int i = 0; i < M * N; ++i) {
         if (abs(C_test[i] - C_ref[i]) > tolerance) {
+            cout << "Mismatch at index " << i << ": " << C_test[i] << " vs " << C_ref[i] << endl;
             return false;
         }
     }
     return true;
 }
 
+
+
+
 template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
-void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, double& gflops, double& time_ms) {
-    auto start = std::chrono::high_resolution_clock::now();
+void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, double& gflops, double& time_ms) {
+    
+
+    auto start = high_resolution_clock::now();
 
     #pragma omp parallel for collapse(2) schedule(static)
     for (int m1 = 0; m1 < M; m1 += BM) {
         for (int n1 = 0; n1 < N; n1 += BN) {
-            float C_cache[BM][BN];
-            float A_cache[BK][BM]; 
-            float B_cache[BK][BN];
-
-            for (int mm = 0; mm < BM; ++mm) {
-                for (int nn = 0; nn < BN; ++nn) {
-                    C_cache[mm][nn] = 0.0f;
-                }
-            }  
+            float C_cache[BM][BN] = {0.0f};
 
             for (int k1 = 0; k1 < K; k1 += BK) {
-                
+                float A_cache[BK][BM];
+                float B_cache[BK][BN];
+
+               
                 for (int mm = 0; mm < BM; ++mm) {
                     for (int kk = 0; kk < BK; ++kk) {
                         int global_row = m1 + mm;
                         int global_col = k1 + kk;
-                        A_cache[kk][mm] = (global_row < M && global_col < K) ? A[global_row * K + global_col] : 0.0f; 
+                        A_cache[kk][mm] =  A[global_row * K + global_col];
                     }
                 }
 
-                
                 for (int kk = 0; kk < BK; ++kk) {
                     int global_row = k1 + kk;
-                    if (global_row < K) {
-                        int valid_cols = min(BN, N - n1);
-                        memcpy(B_cache[kk], &B[global_row * N + n1], valid_cols * sizeof(float));
-                        for (int pad = valid_cols; pad < BN; ++pad)
-                            B_cache[kk][pad] = 0.0f;
-                    } else {
-                        memset(B_cache[kk], 0, BN * sizeof(float));
-                    }
+                    
+                    int valid_cols = min(BN, N - n1);
+                    memcpy(B_cache[kk], &B[global_row * N + n1], valid_cols * sizeof(float));
+                    memset(B_cache[kk] + valid_cols, 0, (BN - valid_cols) * sizeof(float));
+                    
                 }
 
-                
-                for (int i = 0; i < BM && (m1 + i) < M; i += IT_M) {
-                    for (int j = 0; j < BN && (n1 + j) < N; j += IT_N) {
-                        if (IT_M >= 8 && IT_M % 8 == 0) {
-                            constexpr int AVX_M = IT_M / 8;  
-                            
-                            __m256 C_vec[AVX_M][IT_N];
-                            for (int mm = 0; mm < AVX_M; ++mm) {
-                                for (int nn = 0; nn < IT_N; ++nn) {
-                                    if (i + mm*8 < BM && j + nn < BN) {
-                                        
-                                        float temp[8];
-                                        for (int k = 0; k < 8; ++k) {
-                                            temp[k] = (i + mm*8 + k < BM) ? C_cache[i + mm*8 + k][j + nn] : 0.0f;
-                                        }
-                                        C_vec[mm][nn] = _mm256_loadu_ps(temp);
-                                    } else {
-                                        C_vec[mm][nn] = _mm256_setzero_ps();
+                for (int i = 0; i < BM; i += IT_M) {
+                    for (int j = 0; j < BN; j += IT_N * 8) {
+                        for (int mm = 0; mm < IT_M; ++mm) {
+                            for (int nn = 0; nn < IT_N; ++nn) {
+                                __m256 c = _mm256_setzero_ps();
+                                for (int p = 0; p < BK; p += IT_K) {
+                                    for (int kk = 0; kk < IT_K ; ++kk) {
+                                        int depth = p + kk;
+                                        __m256 a = _mm256_broadcast_ss(&A_cache[depth][i + mm]);
+                                        __m256 b = _mm256_loadu_ps(&B_cache[depth][j + nn * 8]);
+                                        c = _mm256_fmadd_ps(a, b, c);
                                     }
                                 }
-                            }
-
-                            
-                            for (int p = 0; p < BK && (k1 + p) < K; p += IT_K) {
-                                for (int kk = 0; kk < IT_K && (k1 + p + kk) < K; ++kk) {
-                                    int depth = p + kk;
-
-                                    
-                                    __m256 A_vec[AVX_M];
-                                    for (int mm = 0; mm < AVX_M; ++mm) {
-                                        if (i + mm*8 < BM) {
-                                            
-                                            float temp[8];
-                                            for (int k = 0; k < 8; ++k) {
-                                                temp[k] = (i + mm*8 + k < BM) ? A_cache[depth][i + mm*8 + k] : 0.0f;
-                                            }
-                                            A_vec[mm] = _mm256_loadu_ps(temp);
-                                        } else {
-                                            A_vec[mm] = _mm256_setzero_ps();
-                                        }
-                                    }
-
-                                    
-                                    for (int nn = 0; nn < IT_N; ++nn) {
-                                        __m256 B_broadcast;
-                                        if (j + nn < BN) {
-                                            B_broadcast = _mm256_broadcast_ss(&B_cache[depth][j + nn]);
-                                        } else {
-                                            B_broadcast = _mm256_setzero_ps();
-                                        }
-
-                                        
-                                        for (int mm = 0; mm < AVX_M; ++mm) {
-                                            C_vec[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_broadcast, C_vec[mm][nn]);
-                                        }
-                                    }
-                                }
-                            }
-
-                            
-                            for (int mm = 0; mm < AVX_M; ++mm) {
-                                for (int nn = 0; nn < IT_N; ++nn) {
-                                    if (i + mm*8 < BM && j + nn < BN) {
-                                        
-                                        float temp[8];
-                                        _mm256_storeu_ps(temp, C_vec[mm][nn]);
-                                        for (int k = 0; k < 8; ++k) {
-                                            if (i + mm*8 + k < BM) {
-                                                C_cache[i + mm*8 + k][j + nn] = temp[k];
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            
-                            for (int mm = 0; mm < IT_M; ++mm) {
-                                for (int nn = 0; nn < IT_N; ++nn) {
-                                    float c_accum = 0.0f;
-                                    for (int p = 0; p < BK && (k1 + p) < K; p += IT_K) {
-                                        for (int kk = 0; kk < IT_K && (k1 + p + kk) < K; ++kk) {
-                                            int depth = p + kk;
-                                            if (i + mm < BM && j + nn < BN)
-                                                c_accum += A_cache[depth][i + mm] * B_cache[depth][j + nn]; 
-                                        }
-                                    }
-                                    if (i + mm < BM && j + nn < BN)
-                                        C_cache[i + mm][j + nn] += c_accum;
-                                }
+                                __m256 current = _mm256_loadu_ps(&C_cache[i + mm][j + nn * 8]);
+                                current = _mm256_add_ps(current, c);
+                                _mm256_storeu_ps(&C_cache[i + mm][j + nn * 8], current);
                             }
                         }
                     }
@@ -173,73 +98,95 @@ void compute_matrix_multi1(float* A, float* B, float* C1, int M, int N, int K, d
                 int global_row = m1 + mm;
                 if (global_row < M) {
                     int valid_cols = min(BN, N - n1);
-                    memcpy(&C1[global_row * N + n1], C_cache[mm], valid_cols * sizeof(float));
+                    memcpy(&C[global_row * N + n1], C_cache[mm], valid_cols * sizeof(float));
                 }
             }
         }
     }
 
-    auto end = std::chrono::high_resolution_clock::now();
-    time_ms = std::chrono::duration<double, std::milli>(end - start).count();
-    gflops = (2.0 * M * N * K) / (time_ms * 1e6); 
+    auto end = high_resolution_clock::now();
+    time_ms = duration<double, milli>(end - start).count();
+    gflops = (2.0 * M * N * K) / (time_ms * 1e6);
+
 }
 
-template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
-void testBlockSize3(float* A, float* B, float* C1, float* C_ref, int M, int N, int K, int iterations, float results1[][8], int& idx) {
+void compute_mkl(float* A, float* B, float* C, int M, int N, int K, double& gflops, double& time_ms) {
+    auto start = high_resolution_clock::now();
+
+    float alpha = 1.0f;
+    float beta = 0.0f;
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                M, N, K, alpha, A, K, B, N, beta, C, N);
+
+    auto end = high_resolution_clock::now();
+    time_ms = duration<double, milli>(end - start).count();
+    gflops = (2.0 * M * N * K) / (time_ms * 1e6);
+}
+
+
+void testMKL(float* A, float* B, float* C, float* C_ref, int M, int N, int K, int iterations, float results[][8], int& idx) {
     double total_gflops = 0.0;
     double total_time_ms = 0.0;
-
-    
     vector<float> C_copy(M * N);
-    
+
     for (int i = 0; i < iterations; ++i) {
-        
         fill(C_copy.begin(), C_copy.end(), 0.0f);
-        
+        double gflops, time_ms;
+        compute_mkl(A, B, C_copy.data(), M, N, K, gflops, time_ms);
+        total_gflops += gflops;
+        total_time_ms += time_ms;
+    }
+
+    memcpy(C, C_copy.data(), M * N * sizeof(float));
+    float avg_gflops = total_gflops / iterations;
+    float avg_time_ms = total_time_ms / iterations;
+    bool is_correct = verify_result(C, C_ref, M, N);
+
+   
+    results[idx][6] = avg_gflops;
+    results[idx][7] = is_correct ? 1.0f : 0.0f;
+    idx++;
+
+    cout << fixed << setprecision(3);
+    cout << "MKL | Time: " << avg_time_ms << " ms | Avg GFLOP/s: " << avg_gflops << " | " << (is_correct ? "PASS" : "FAIL") << endl;
+}
+
+
+template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
+void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int K, int iterations, float results[][8], int& idx) {
+    double total_gflops = 0.0;
+    double total_time_ms = 0.0;
+    vector<float> C_copy(M * N);
+
+    for (int i = 0; i < iterations; ++i) {
+        fill(C_copy.begin(), C_copy.end(), 0.0f);
         double gflops, time_ms;
         compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K>(A, B, C_copy.data(), M, N, K, gflops, time_ms);
         total_gflops += gflops;
         total_time_ms += time_ms;
     }
 
-   
-    memcpy(C1, C_copy.data(), M * N * sizeof(float));
-
+    memcpy(C, C_copy.data(), M * N * sizeof(float));
     float avg_gflops = total_gflops / iterations;
     float avg_time_ms = total_time_ms / iterations;
-    bool is_correct = verify_result(C1, C_ref, M, N);
+    bool is_correct = verify_result(C, C_ref, M, N);
 
-    
-    results1[idx][0] = BM;
-    results1[idx][1] = BN;
-    results1[idx][2] = BK;
-    results1[idx][3] = IT_M;
-    results1[idx][4] = IT_N;
-    results1[idx][5] = IT_K;
-    results1[idx][6] = avg_gflops;
-    results1[idx][7] = is_correct ? 1.0f : 0.0f;
+    results[idx][0] = BM;
+    results[idx][1] = BN;
+    results[idx][2] = BK;
+    results[idx][3] = IT_M;
+    results[idx][4] = IT_N;
+    results[idx][5] = IT_K;
+    results[idx][6] = avg_gflops;
+    results[idx][7] = is_correct ? 1.0f : 0.0f;
     idx++;
 
-    
-    printf("BMxBNxBK = %dx%dx%d | IT_MxN_K = %dx%dx%d | Time: %.3f ms | Avg GFLOP/s: %.3f | %s\n",
-           BM, BN, BK, IT_M, IT_N, IT_K, avg_time_ms, avg_gflops, is_correct ? "PASS" : "FAIL");
+    cout << fixed << setprecision(3);
+    cout << "BMxBNxBK = " << BM << "x" << BN << "x" << BK
+         << " | IT_MxN_K = " << IT_M << "x" << IT_N << "x" << IT_K
+         << " | Time: " << avg_time_ms << " ms | Avg GFLOP/s: " << avg_gflops
+         << " | " << (is_correct ? "PASS" : "FAIL") << endl;
 }
-
-#ifdef USE_MKL
-#include <mkl.h>
-void run_mkl_sgemm(int M, int N, int K, float alpha, float beta, float* A, float* B, float* C,
-                   double& gflops, double& time_ms) {
-    auto start = high_resolution_clock::now();
-    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                M, N, K, alpha, A, K, B, N, beta, C, N);
-    auto end = high_resolution_clock::now();
-    time_ms = duration<double, milli>(end - start).count();
-    gflops = (2.0 * M * N * K / (time_ms / 1000.0)) / 1e9;
-    std::cout << "MKL SGEMM Time: " << time_ms << " ms, GFLOPS: " << gflops << std::endl;
-}
-#endif
-
-
 
 int main(int argc, char* argv[]) {
     srand(time(0));
@@ -264,7 +211,6 @@ int main(int argc, char* argv[]) {
     int K = atoi(opt.getValue("k"));
     int itr = atoi(opt.getValue("itr"));
 
-    const float alpha = 1.0f, beta = 0.0f;
     vector<float> A(M * K), B(K * N), C_ref(M * N, 0.0f), C_test(M * N, 0.0f);
     default_random_engine gen;
     uniform_real_distribution<float> dist(0.0f, 1.0f);
@@ -273,23 +219,25 @@ int main(int argc, char* argv[]) {
 
     compute_reference(A.data(), B.data(), C_ref.data(), M, N, K);
 
-    float results[100][8];  
+    float results[100][8];
     int idx = 0;
 
-   
-    testBlockSize3<128, 128, 128, 16, 4, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    // testBlockSize3<64, 64, 32, 8, 1, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    // testBlockSize3<64, 64, 16, 8, 8, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    // testBlockSize3<64, 32, 32, 8, 8, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    // testBlockSize3<32, 64, 32, 8, 1, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    // testBlockSize3<32, 32, 32, 2, 2, 2>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    // testBlockSize3<128, 64, 64, 8, 2, 2>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    // testBlockSize3<128, 64, 32, 8, 2, 2>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    // testBlockSize3<128, 64, 16, 8, 8, 4>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    // testBlockSize3<128, 32, 32, 8, 8, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    // testBlockSize3<128, 64, 32, 8, 1, 8>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize3<128, 128, 128, 16, 2, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    
+    testMKL(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
 
+    
+    testBlockSize<128, 128, 128, 8, 1, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize<128, 128, 128, 16, 1, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize<64, 64, 64, 8, 2, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize<64, 64, 64, 8, 4, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize<64, 128, 64, 8, 2, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize<128, 64, 64, 8, 2, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize<128, 128, 64, 8, 4, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize<128, 128, 128, 16, 2, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize<128, 256, 64, 16, 4, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize<256, 128, 32, 16, 2, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize<256, 256, 32, 16, 4, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize<64, 256, 128, 8, 4, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
     
     float best_gflops = 0.0;
     int best_idx = -1;
@@ -301,28 +249,21 @@ int main(int argc, char* argv[]) {
     }
 
     if (best_idx >= 0) {
-        printf("\nBest Config: BM=%g BN=%g BK=%g | IT_M=%g IT_N=%g IT_K=%g | Avg GFLOPs: %.3f\n",
-            results[best_idx][0], results[best_idx][1], results[best_idx][2],
-            results[best_idx][3], results[best_idx][4], results[best_idx][5],
-            results[best_idx][6]);
+        cout << fixed << setprecision(3);
+        if (results[best_idx][0] == 0) { 
+            cout << "\nBest Config: MKL | Avg GFLOPs: " << results[best_idx][6] << endl;
+        } else {
+            cout << "\nBest Config: BM=" << results[best_idx][0]
+                 << " BN=" << results[best_idx][1]
+                 << " BK=" << results[best_idx][2]
+                 << " | IT_M=" << results[best_idx][3]
+                 << " IT_N=" << results[best_idx][4]
+                 << " IT_K=" << results[best_idx][5]
+                 << " | Avg GFLOPs: " << results[best_idx][6] << endl;
+        }
     }
 
-#ifdef USE_MKL
-    vector<float> C_mkl(M * N, 0.0f);
-    double gflops_mkl = 0.0, time_mkl = 0.0;
-    run_mkl_sgemm(M, N, K, alpha, beta, A.data(), B.data(), C_mkl.data(), gflops_mkl, time_mkl);
-    cout << "\nMKL Time: " << time_mkl << " ms | GFLOPs: " << gflops_mkl << std::endl;
-#endif
-
-#ifdef USE_BASELINE
-    vector<float> C_base(M * N, 0.0f);
-    double gflops_base = 0.0, time_base = 0.0;
-    run_baseline_sgemm(M, N, K, A.data(), B.data(), C_base.data(), gflops_base, time_base);
-    cout << "Baseline Time: " << time_base << " ms | GFLOPs: " << gflops_base << std::endl;
-#endif
-
     return 0;
-
 }
 // Compilation command:
 // g++ -O3 -march=native -fopenmp -DUSE_MKL gemm_benchmark.cpp AnyOption/AnyOption/anyoption.cpp \
@@ -336,3 +277,174 @@ int main(int argc, char* argv[]) {
 
 
 //source /opt/intel/oneapi/setvars.sh
+
+
+
+
+
+
+
+// template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
+// void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, double& gflops, double& time_ms) {
+    
+
+//     auto start = high_resolution_clock::now();
+
+//     #pragma omp parallel for collapse(2) schedule(static)
+//     for (int m1 = 0; m1 < M; m1 += BM) {
+//         for (int n1 = 0; n1 < N; n1 += BN) {
+//             float C_cache[BM][BN] = {0.0f};
+
+//             for (int k1 = 0; k1 < K; k1 += BK) {
+//                 float A_cache[BK][BM];
+//                 float B_cache[BK][BN];
+
+               
+//                 for (int mm = 0; mm < BM; ++mm) {
+//                     for (int kk = 0; kk < BK; ++kk) {
+//                         int global_row = m1 + mm;
+//                         int global_col = k1 + kk;
+//                         A_cache[kk][mm] =  A[global_row * K + global_col];
+//                     }
+//                 }
+
+//                 for (int kk = 0; kk < BK; ++kk) {
+//                     int global_row = k1 + kk;
+                    
+//                     int valid_cols = min(BN, N - n1);
+//                     memcpy(B_cache[kk], &B[global_row * N + n1], valid_cols * sizeof(float));
+//                     memset(B_cache[kk] + valid_cols, 0, (BN - valid_cols) * sizeof(float));
+                    
+//                 }
+
+//                 for (int i = 0; i < BM; i += IT_M) {
+//                     for (int j = 0; j < BN; j += IT_N * 8) {
+//                         for (int mm = 0; mm < IT_M; ++mm) {
+//                             for (int nn = 0; nn < IT_N; ++nn) {
+//                                 __m256 c = _mm256_setzero_ps();
+//                                 for (int p = 0; p < BK; p += IT_K) {
+//                                     for (int kk = 0; kk < IT_K ; ++kk) {
+//                                         int depth = p + kk;
+//                                         __m256 a = _mm256_broadcast_ss(&A_cache[depth][i + mm]);
+//                                         __m256 b = _mm256_loadu_ps(&B_cache[depth][j + nn * 8]);
+//                                         c = _mm256_fmadd_ps(a, b, c);
+//                                     }
+//                                 }
+//                                 __m256 current = _mm256_loadu_ps(&C_cache[i + mm][j + nn * 8]);
+//                                 current = _mm256_add_ps(current, c);
+//                                 _mm256_storeu_ps(&C_cache[i + mm][j + nn * 8], current);
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+
+            
+//             for (int mm = 0; mm < BM; ++mm) {
+//                 int global_row = m1 + mm;
+//                 if (global_row < M) {
+//                     int valid_cols = min(BN, N - n1);
+//                     memcpy(&C[global_row * N + n1], C_cache[mm], valid_cols * sizeof(float));
+//                 }
+//             }
+//         }
+//     }
+
+//     auto end = high_resolution_clock::now();
+//     time_ms = duration<double, milli>(end - start).count();
+//     gflops = (2.0 * M * N * K) / (time_ms * 1e6);
+//  constexpr int vector_width = 8; 
+//     constexpr int j_step = IT_N * vector_width;
+
+//     auto start = high_resolution_clock::now();
+
+//     #pragma omp parallel for collapse(2) schedule(static)
+//     for (int m1 = 0; m1 < M; m1 += BM) {
+//         for (int n1 = 0; n1 < N; n1 += BN) {
+//             float C_cache[BM][BN] = {0.0f};
+
+//             for (int k1 = 0; k1 < K; k1 += BK) {
+//                 float A_cache[BK][BM];
+//                 float B_cache[BK][BN];
+
+                
+//                 for (int mm = 0; mm < BM; ++mm) {
+//                     for (int kk = 0; kk < BK; ++kk) {
+//                         int global_row = m1 + mm;
+//                         int global_col = k1 + kk;
+//                         A_cache[kk][mm] =  A[global_row * K + global_col] ;
+//                     }
+//                 }
+
+               
+//                 for (int kk = 0; kk < BK; ++kk) {
+//                     int global_row = k1 + kk;
+//                     if (global_row < K) {
+//                         int valid_cols = min(BN, N - n1);
+//                         memcpy(B_cache[kk], &B[global_row * N + n1], valid_cols * sizeof(float));
+//                         memset(B_cache[kk], 0, BN * sizeof(float));
+//                     }
+//                 }
+
+               
+//                 for (int i = 0; i < BM; i += IT_M) {
+//                     for (int j = 0; j < BN; j += j_step) {
+//                         __m256 C_vec[IT_M][IT_N];
+                      
+//                         for (int mm = 0; mm < IT_M; ++mm) {
+//                             for (int nn = 0; nn < IT_N; ++nn) {
+//                                 C_vec[mm][nn] = _mm256_setzero_ps();
+//                             }
+//                         }
+
+                        
+//                         for (int p = 0; p < BK; p += IT_K) {
+//                             for (int kk = 0; kk < IT_K && (p + kk) < BK; ++kk) {
+//                                 int depth = p + kk;
+
+                                
+//                                 __m256 A_vec[IT_M];
+//                                 __m256 B_vec[IT_N];
+//                                 for (int mm = 0; mm < IT_M; ++mm) {
+//                                     A_vec[mm] = _mm256_broadcast_ss(&A_cache[depth][i + mm]);
+//                                 }
+//                                 for (int nn = 0; nn < IT_N; ++nn) {
+//                                     B_vec[nn] = _mm256_loadu_ps(&B_cache[depth][j + nn * vector_width]);
+//                                 }
+
+                                
+//                                 for (int mm = 0; mm < IT_M; ++mm) {
+//                                     for (int nn = 0; nn < IT_N; ++nn) {
+//                                         C_vec[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_vec[mm][nn]);
+//                                     }
+//                                 }
+//                             }
+//                         }
+
+                       
+//                         for (int mm = 0; mm < IT_M; ++mm) {
+//                             for (int nn = 0; nn < IT_N; ++nn) {
+//                                 __m256 current = _mm256_loadu_ps(&C_cache[i + mm][j + nn * vector_width]);
+//                                 current = _mm256_add_ps(current, C_vec[mm][nn]);
+//                                 _mm256_storeu_ps(&C_cache[i + mm][j + nn * vector_width], current);
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+
+            
+//             for (int mm = 0; mm < BM; ++mm) {
+//                 int global_row = m1 + mm;
+//                 if (global_row < M) {
+//                     int valid_cols = min(BN, N - n1);
+//                     memcpy(&C[global_row * N + n1], C_cache[mm], valid_cols * sizeof(float));
+//                 }
+//             }
+//         }
+//     }
+
+//     auto end = high_resolution_clock::now();
+//     time_ms = duration<double, milli>(end - start).count();
+//     gflops = (2.0 * M * N * K) / (time_ms * 1e6);
+// }
