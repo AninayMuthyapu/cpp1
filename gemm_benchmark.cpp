@@ -284,3 +284,4 @@ int main(int argc, char* argv[]) {
 //                  << " | Avg GFLOP/s: " << results[best_idx][6] << endl;
 //         }
 //     }
+//
