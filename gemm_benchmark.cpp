@@ -109,14 +109,14 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, do
                         }
 
                         if (k1 + BK >= K) {
-                            // Store directly to C from C_vec
+                            
                             for (int mm = 0; mm < IT_M; ++mm) {
                                 for (int nn = 0; nn < IT_N/8; ++nn) {
                                     _mm256_storeu_ps(&C[(m1 + i + mm) * N + n1 + j + nn * vector_width], C_vec[mm][nn]);
                                 }
                             }
                         } else {
-                            // Store back to cache
+                            
                             for (int mm = 0; mm < IT_M; ++mm) {
                                 for (int nn = 0; nn < IT_N/8; ++nn) {
                                     _mm256_storeu_ps(&local_C_cache[(i + mm) * BN + j + nn * vector_width], C_vec[mm][nn]);
@@ -127,7 +127,7 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, do
                 }
             }
 
-            // Remove the original C copy code since we now write directly in last BK
+            
         }
     }
 
@@ -224,7 +224,7 @@ void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int
         total_time_ms += time_ms;
     }
 
-    // Free all pointers
+    
     for (int t = 0; t < max_threads; ++t) {
         free(C_cache[t]);
         free(A_cache[t]);
