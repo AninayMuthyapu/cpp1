@@ -7,13 +7,15 @@
 #include <cblas.h> 
 #include <omp.h>   
 #include <iomanip>
-#include "AnyOption/AnyOption/anyoption.h"  
+#include <unistd.h>
+#include "anyoption.h"
 
 
 using namespace std;
 using namespace std::chrono;
 
 void compute_reference(float* A, float* B, float* C, int M, int N, int K) {
+    #pragma omp parallel for collapse(2)
     for (int i = 0; i < M; ++i) {
         for (int j = 0; j < N; ++j) {
             float sum = 0.0f;
@@ -37,9 +39,9 @@ bool verify_result(float* C_test, float* C_ref, int M, int N, float tolerance = 
 
 template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
 void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, double& gflops, double& time_ms,
-                          float* C_cache, float* A_cache, float* B_cache) {
+                          float** C_cache, float** A_cache, float** B_cache) {
     constexpr int vector_width = 8;
-    constexpr int j_step = IT_N * vector_width;
+    constexpr int j_step = IT_N;
 
     auto start = high_resolution_clock::now();
 
@@ -48,11 +50,10 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, do
         for (int n1 = 0; n1 < N; n1 += BN) {
             
             int thread_id = omp_get_thread_num();
-            int max_threads = omp_get_max_threads();
             
-            float* local_C_cache = &C_cache[thread_id * BM * BN];
-            float* local_A_cache = &A_cache[thread_id * BM * BK];
-            float* local_B_cache = &B_cache[thread_id * BK * BN];
+            float* local_C_cache = C_cache[thread_id];
+            float* local_A_cache = A_cache[thread_id];
+            float* local_B_cache = B_cache[thread_id];
             
             
             memset(local_C_cache, 0, BM * BN * sizeof(float));
@@ -76,13 +77,14 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, do
                     }
                 
 
+
                 for (int i = 0; i < BM; i += IT_M) {
                     for (int j = 0; j < BN; j += j_step) {
-                        __m256 C_vec[IT_M][IT_N];
+                        __m256 C_vec[IT_M][IT_N/8];
                         
                         
                         for (int mm = 0; mm < IT_M; ++mm) {
-                            for (int nn = 0; nn < IT_N; ++nn) {
+                            for (int nn = 0; nn < IT_N/8; ++nn) {
                                 C_vec[mm][nn] = _mm256_loadu_ps(&local_C_cache[(i + mm) * BN + j + nn * vector_width]);
                             }
                         }
@@ -91,39 +93,41 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, do
                             for (int kk = 0; kk < IT_K ; ++kk) {
                                 int depth = p + kk;
                                 __m256 A_vec[IT_M];
-                                __m256 B_vec[IT_N];
+                                __m256 B_vec[IT_N/8];
                                 for (int mm = 0; mm < IT_M; ++mm) {
                                     A_vec[mm] = _mm256_broadcast_ss(&local_A_cache[(i + mm) * BK + depth]);
                                 }
-                                for (int nn = 0; nn < IT_N; ++nn) {
+                                for (int nn = 0; nn < IT_N/8; ++nn) {
                                     B_vec[nn] = _mm256_loadu_ps(&local_B_cache[depth * BN + j + nn * vector_width]);
                                 }
                                 for (int mm = 0; mm < IT_M; ++mm) {
-                                    for (int nn = 0; nn < IT_N; ++nn) {
+                                    for (int nn = 0; nn < IT_N/8; ++nn) {
                                         C_vec[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_vec[mm][nn]);
                                     }
                                 }
                             }
                         }
-                        
-                       
-                        for (int mm = 0; mm < IT_M; ++mm) {
-                            for (int nn = 0; nn < IT_N; ++nn) {
-                                _mm256_storeu_ps(&local_C_cache[(i + mm) * BN + j + nn * vector_width], C_vec[mm][nn]);
+
+                        if (k1 + BK >= K) {
+                            // Store directly to C from C_vec
+                            for (int mm = 0; mm < IT_M; ++mm) {
+                                for (int nn = 0; nn < IT_N/8; ++nn) {
+                                    _mm256_storeu_ps(&C[(m1 + i + mm) * N + n1 + j + nn * vector_width], C_vec[mm][nn]);
+                                }
+                            }
+                        } else {
+                            // Store back to cache
+                            for (int mm = 0; mm < IT_M; ++mm) {
+                                for (int nn = 0; nn < IT_N/8; ++nn) {
+                                    _mm256_storeu_ps(&local_C_cache[(i + mm) * BN + j + nn * vector_width], C_vec[mm][nn]);
+                                }
                             }
                         }
                     }
                 }
             }
 
-          
-            for (int mm = 0; mm < BM; ++mm) {
-                int global_row = m1 + mm;
-                if (global_row < M) {
-                    int valid_cols = min(BN, N - n1);
-                    memcpy(&C[global_row * N + n1], &local_C_cache[mm * BN],valid_cols * sizeof(float));
-                }
-            }
+            // Remove the original C copy code since we now write directly in last BK
         }
     }
 
@@ -145,13 +149,16 @@ void compute_openblas(float* A, float* B, float* C, int M, int N, int K, double&
     gflops = (2.0 * M * N * K) / (time_ms * 1e6);
 }
 
-void testOpenBLAS(float* A, float* B, float* C, float* C_ref, int M, int N, int K, int iterations, float results[][8], int& idx) {
+void testOpenBLAS(float* A, float* B, float* C, float* C_ref, int M, int N, int K, int iterations, float results[][8], int& idx, bool check_results) {
     vector<float> C_copy(M * N, 0.0f);
 
    
     double gflops, time_ms;
     compute_openblas(A, B, C_copy.data(), M, N, K, gflops, time_ms);
-    bool is_correct = verify_result(C_copy.data(), C_ref, M, N);
+    bool is_correct = true;
+    if (check_results) {
+        is_correct = verify_result(C_copy.data(), C_ref, M, N);
+    }
 
 
     double total_gflops = 0.0;
@@ -172,25 +179,39 @@ void testOpenBLAS(float* A, float* B, float* C, float* C_ref, int M, int N, int 
     idx++;
 
     cout << fixed << setprecision(3);
-    cout << "OpenBLAS | Time: " << avg_time_ms << " ms | Avg GFLOP/s: " << avg_gflops << " | " << (is_correct ? "PASS" : "FAIL") << endl;
+    cout << "OpenBLAS | Time: " << avg_time_ms << " ms | Avg GFLOP/s: " << avg_gflops;
+    if (check_results) {
+        cout << " | " << (is_correct ? "PASS" : "FAIL");
+    }
+    cout << endl;
 }
 
 template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
-void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int K, int iterations, float results[][8], int& idx) {
+void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int K, int iterations, float results[][8], int& idx, bool check_results) {
     vector<float> C_copy(M * N, 0.0f);
 
     
     int max_threads = omp_get_max_threads();
+    long page_size = sysconf(_SC_PAGESIZE);
     
-    vector<float> C_cache(max_threads * BM * BN);
-    vector<float> A_cache(max_threads * BM * BK);
-    vector<float> B_cache(max_threads * BK * BN);
+    float** C_cache = new float*[max_threads];
+    float** A_cache = new float*[max_threads];
+    float** B_cache = new float*[max_threads];
+    
+    for (int t = 0; t < max_threads; ++t) {
+        C_cache[t] = (float*)aligned_alloc(page_size, ((BM * BN * sizeof(float) + page_size - 1) / page_size) * page_size);
+        A_cache[t] = (float*)aligned_alloc(page_size, ((BM * BK * sizeof(float) + page_size - 1) / page_size) * page_size);
+        B_cache[t] = (float*)aligned_alloc(page_size, ((BK * BN * sizeof(float) + page_size - 1) / page_size) * page_size);
+    }
 
    
     double gflops, time_ms;
     compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K>(A, B, C_copy.data(), M, N, K, gflops, time_ms,
-                                                         C_cache.data(), A_cache.data(), B_cache.data());
-    bool is_correct = verify_result(C_copy.data(), C_ref, M, N);
+                                                         C_cache, A_cache, B_cache);
+    bool is_correct = true;
+    if (check_results) {
+        is_correct = verify_result(C_copy.data(), C_ref, M, N);
+    }
 
   
     double total_gflops = 0.0;
@@ -198,10 +219,20 @@ void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int
     
     for (int i = 0; i < iterations; ++i) {
         compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K>(A, B, C_copy.data(), M, N, K, gflops, time_ms,
-                                                             C_cache.data(), A_cache.data(), B_cache.data());
+                                                             C_cache, A_cache, B_cache);
         total_gflops += gflops;
         total_time_ms += time_ms;
     }
+
+    // Free all pointers
+    for (int t = 0; t < max_threads; ++t) {
+        free(C_cache[t]);
+        free(A_cache[t]);
+        free(B_cache[t]);
+    }
+    delete[] C_cache;
+    delete[] A_cache;
+    delete[] B_cache;
 
     memcpy(C, C_copy.data(), M * N * sizeof(float));
     float avg_gflops = total_gflops / iterations;
@@ -220,8 +251,11 @@ void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int
     cout << fixed << setprecision(3);
     cout << "BMxBNxBK = " << BM << "x" << BN << "x" << BK
          << " | IT_MxN_K = " << IT_M << "x" << IT_N << "x" << IT_K
-         << " | Time: " << avg_time_ms << " ms | Avg GFLOP/s: " << avg_gflops
-         << " | " << (is_correct ? "PASS" : "FAIL") << endl;
+         << " | Time: " << avg_time_ms << " ms | Avg GFLOP/s: " << avg_gflops;
+    if (check_results) {
+        cout << " | " << (is_correct ? "PASS" : "FAIL");
+    }
+    cout << endl;
 }
 
 
@@ -233,6 +267,7 @@ int main(int argc, char* argv[]) {
 
     AnyOption opt;
     opt.setFlag("help", 'h');
+    opt.setFlag("no-check");
     opt.setOption("m");
     opt.setOption("n");
     opt.setOption("k");
@@ -242,7 +277,7 @@ int main(int argc, char* argv[]) {
 
     if (opt.getFlag("help") || !opt.getValue("m") || !opt.getValue("n") ||
         !opt.getValue("k") || !opt.getValue("itr")) {
-        cout << "Usage: " << argv[0] << " --m <rows> --n <cols> --k <inner> --itr <iterations>\n";
+        cout << "Usage: " << argv[0] << " --m <rows> --n <cols> --k <inner> --itr <iterations> [--no-check]\n";
         return 1;
     }
 
@@ -250,6 +285,7 @@ int main(int argc, char* argv[]) {
     int N = atoi(opt.getValue("n"));
     int K = atoi(opt.getValue("k"));
     int itr = atoi(opt.getValue("itr"));
+    bool check_results = !opt.getFlag("no-check");
 
     vector<float> A(M * K), B(K * N), C_ref(M * N, 0.0f), C_test(M * N, 0.0f);
     default_random_engine gen;
@@ -257,25 +293,27 @@ int main(int argc, char* argv[]) {
     for (auto& x : A) x = dist(gen);
     for (auto& x : B) x = dist(gen);
 
-    compute_reference(A.data(), B.data(), C_ref.data(), M, N, K);
+    if (check_results) {
+        compute_reference(A.data(), B.data(), C_ref.data(), M, N, K);
+    }
 
     float results[100][8];
     int idx = 0;
 
-    testOpenBLAS(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testOpenBLAS(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
 
-    testBlockSize<128, 128, 128, 8, 1, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize<128, 128, 128, 16, 1, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize<64, 64, 64, 8, 2, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize<64, 64, 64, 8, 4, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize<64, 128, 64, 8, 2, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize<128, 64, 64, 8, 2, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize<128, 128, 64, 8, 4, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize<128, 128, 128, 16, 2, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize<128, 256, 64, 16, 4, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize<256, 128, 32, 16, 2, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize<256, 256, 32, 16, 4, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
-    testBlockSize<64, 256, 128, 8, 4, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx);
+    testBlockSize<128, 128, 128, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 128, 128, 8, 8, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<64, 64, 64, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<64, 64, 64, 8, 8, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<64, 128, 64, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 64, 64, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 128, 64, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 128, 128, 8, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 256, 64, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<256, 128, 32, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<256, 256, 32, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<64, 256, 128, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
 
     
 
