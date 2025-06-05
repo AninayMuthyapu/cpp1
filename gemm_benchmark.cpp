@@ -290,8 +290,8 @@ int main(int argc, char* argv[]) {
     vector<float> A(M * K), B(K * N), C_ref(M * N, 0.0f), C_test(M * N, 0.0f);
     default_random_engine gen;
     uniform_real_distribution<float> dist(0.0f, 1.0f);
-    for (auto& x : A) x = dist(gen);
-    for (auto& x : B) x = dist(gen);
+    for (auto& x : A) x = static_cast<float>(rand() % 10);
+    for (auto& x : B) x = static_cast<float>(rand() % 10);
 
     if (check_results) {
         compute_reference(A.data(), B.data(), C_ref.data(), M, N, K);
@@ -302,24 +302,25 @@ int main(int argc, char* argv[]) {
 
     testOpenBLAS(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
 
-    testBlockSize<128, 128, 128, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<128, 128, 128, 8, 8, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 128, 32, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 128, 64, 8, 8, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<64, 64, 64, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<64, 64, 64, 8, 8, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<64, 128, 64, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<128, 64, 64, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<128, 128, 64, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<128, 128, 128, 8, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 128, 32, 8, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<128, 256, 64, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<256, 128, 32, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<256, 256, 32, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<64, 256, 128, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<64, 256, 32, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
 
     
 
     return 0;
+    
 }
-
+https://docs.google.com/document/d/1Bimz-7aHAvoNW3PCO_z7AtHp5IrsZQuZZ9397M_uMhM/edit?usp=sharing
 
 
 //   float best_gflops = 0.0;
