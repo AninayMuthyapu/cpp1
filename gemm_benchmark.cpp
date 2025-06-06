@@ -10,7 +10,6 @@
 #include <unistd.h>
 #include "anyoption.h"
 
-
 using namespace std;
 using namespace std::chrono;
 
@@ -37,7 +36,8 @@ bool verify_result(float* C_test, float* C_ref, int M, int N, float tolerance = 
     return true;
 }
 
-template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
+
+template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K, bool MIsMultipleOfBM, bool NIsMultipleOfBN, bool KIsMultipleOfBK>
 void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, double& gflops, double& time_ms,
                           float** C_cache, float** A_cache, float** B_cache) {
     constexpr int vector_width = 8;
@@ -48,40 +48,61 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, do
     #pragma omp parallel for collapse(2) schedule(static)
     for (int m1 = 0; m1 < M; m1 += BM) {
         for (int n1 = 0; n1 < N; n1 += BN) {
-            
             int thread_id = omp_get_thread_num();
-            
             float* local_C_cache = C_cache[thread_id];
             float* local_A_cache = A_cache[thread_id];
             float* local_B_cache = B_cache[thread_id];
             
             
-            memset(local_C_cache, 0, BM * BN * sizeof(float));
+            for (int i = 0; i < BM; ++i) {
+                int global_row = m1 + i;
+                memcpy(&local_C_cache[i * BN], &C[global_row * N + n1], BN * sizeof(float));
+            }
+
+            
 
             for (int k1 = 0; k1 < K; k1 += BK) {
                 
-                for (int mm = 0; mm < BM; ++mm) {
-                    int global_row = m1 + mm;
+                if (KIsMultipleOfBK) {
+                    for (int mm = 0; mm < BM; ++mm) {
+                        int global_row = m1 + mm;
+                        if (global_row < M) {
+                            memcpy(&local_A_cache[mm * BK], &A[global_row * K + k1], BK * sizeof(float));
+                        } 
+                    }
+                } else {
+                    for (int mm = 0; mm < BM; ++mm) {
+                        int global_row = m1 + mm;
+                        
                         int valid_cols = min(BK, K - k1);
                         memcpy(&local_A_cache[mm * BK], &A[global_row * K + k1], valid_cols * sizeof(float));
+                            
                         
                     }
-                
+                }
 
-                
-                for (int kk = 0; kk < BK; ++kk) {
-                    int global_row = k1 + kk;
-                    int valid_cols = min(BN, N - n1);
-                    memcpy(&local_B_cache[kk * BN],&B[global_row * N + n1], valid_cols * sizeof(float));
+               
+                if (NIsMultipleOfBN && KIsMultipleOfBK) {
+                    for (int kk = 0; kk < BK; ++kk) {
+                        int global_row = k1 + kk;
+                        
+                        memcpy(&local_B_cache[kk * BN], &B[global_row * N + n1], BN * sizeof(float));
                         
                     }
-                
-
+                } else {
+                    for (int kk = 0; kk < BK; ++kk) {
+                        int global_row = k1 + kk;
+                        
+                        int valid_cols = min(BN, N - n1);
+                        memcpy(&local_B_cache[kk * BN], &B[global_row * N + n1], valid_cols * sizeof(float));
+                            
+                        
+                    }
+                }
 
                 for (int i = 0; i < BM; i += IT_M) {
                     for (int j = 0; j < BN; j += j_step) {
                         __m256 C_vec[IT_M][IT_N/8];
-                        
                         
                         for (int mm = 0; mm < IT_M; ++mm) {
                             for (int nn = 0; nn < IT_N/8; ++nn) {
@@ -90,7 +111,7 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, do
                         }
                         
                         for (int p = 0; p < BK; p += IT_K) {
-                            for (int kk = 0; kk < IT_K ; ++kk) {
+                            for (int kk = 0; kk < IT_K; ++kk) {
                                 int depth = p + kk;
                                 __m256 A_vec[IT_M];
                                 __m256 B_vec[IT_N/8];
@@ -108,19 +129,10 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, do
                             }
                         }
 
-                        if (k1 + BK >= K) {
-                            
-                            for (int mm = 0; mm < IT_M; ++mm) {
-                                for (int nn = 0; nn < IT_N/8; ++nn) {
-                                    _mm256_storeu_ps(&C[(m1 + i + mm) * N + n1 + j + nn * vector_width], C_vec[mm][nn]);
-                                }
-                            }
-                        } else {
-                            
-                            for (int mm = 0; mm < IT_M; ++mm) {
-                                for (int nn = 0; nn < IT_N/8; ++nn) {
-                                    _mm256_storeu_ps(&local_C_cache[(i + mm) * BN + j + nn * vector_width], C_vec[mm][nn]);
-                                }
+                      
+                        for (int mm = 0; mm < IT_M; ++mm) {
+                            for (int nn = 0; nn < IT_N/8; ++nn) {
+                                _mm256_storeu_ps(&local_C_cache[(i + mm) * BN + j + nn * vector_width], C_vec[mm][nn]);
                             }
                         }
                     }
@@ -128,6 +140,13 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, do
             }
 
             
+            for (int i = 0; i < BM; ++i) {
+                int global_row = m1 + i;
+                if (global_row < M) {
+                    int valid_cols = min(BN, N - n1);
+                    memcpy(&C[global_row * N + n1], &local_C_cache[i * BN], valid_cols * sizeof(float));
+                }
+            }
         }
     }
 
@@ -152,14 +171,12 @@ void compute_openblas(float* A, float* B, float* C, int M, int N, int K, double&
 void testOpenBLAS(float* A, float* B, float* C, float* C_ref, int M, int N, int K, int iterations, float results[][8], int& idx, bool check_results) {
     vector<float> C_copy(M * N, 0.0f);
 
-   
     double gflops, time_ms;
     compute_openblas(A, B, C_copy.data(), M, N, K, gflops, time_ms);
     bool is_correct = true;
     if (check_results) {
         is_correct = verify_result(C_copy.data(), C_ref, M, N);
     }
-
 
     double total_gflops = 0.0;
     double total_time_ms = 0.0;
@@ -190,7 +207,6 @@ template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
 void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int K, int iterations, float results[][8], int& idx, bool check_results) {
     vector<float> C_copy(M * N, 0.0f);
 
-    
     int max_threads = omp_get_max_threads();
     long page_size = sysconf(_SC_PAGESIZE);
     
@@ -204,27 +220,38 @@ void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int
         B_cache[t] = (float*)aligned_alloc(page_size, ((BK * BN * sizeof(float) + page_size - 1) / page_size) * page_size);
     }
 
-   
     double gflops, time_ms;
-    compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K>(A, B, C_copy.data(), M, N, K, gflops, time_ms,
-                                                         C_cache, A_cache, B_cache);
     bool is_correct = true;
+    
+    
+    if (M % BM == 0 && N % BN == 0 && K % BK == 0) {
+        compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K, true, true, true>(
+            A, B, C_copy.data(), M, N, K, gflops, time_ms, C_cache, A_cache, B_cache);
+    } else {
+        compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K, false, false, false>(
+            A, B, C_copy.data(), M, N, K, gflops, time_ms, C_cache, A_cache, B_cache);
+    }
+    
     if (check_results) {
         is_correct = verify_result(C_copy.data(), C_ref, M, N);
     }
 
-  
     double total_gflops = 0.0;
     double total_time_ms = 0.0;
     
     for (int i = 0; i < iterations; ++i) {
-        compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K>(A, B, C_copy.data(), M, N, K, gflops, time_ms,
-                                                             C_cache, A_cache, B_cache);
+        if (M % BM == 0 && N % BN == 0 && K % BK == 0) {
+            compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K, true, true, true>(
+                A, B, C_copy.data(), M, N, K, gflops, time_ms, C_cache, A_cache, B_cache);
+        } else {
+            compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K, false, false, false>(
+                A, B, C_copy.data(), M, N, K, gflops, time_ms, C_cache, A_cache, B_cache);
+        }
         total_gflops += gflops;
         total_time_ms += time_ms;
     }
 
-    
+    // Clean up
     for (int t = 0; t < max_threads; ++t) {
         free(C_cache[t]);
         free(A_cache[t]);
@@ -258,11 +285,8 @@ void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int
     cout << endl;
 }
 
-
 int main(int argc, char* argv[]) {
     srand(time(0));
-
-    
     openblas_set_num_threads(omp_get_max_threads());
 
     AnyOption opt;
@@ -288,8 +312,6 @@ int main(int argc, char* argv[]) {
     bool check_results = !opt.getFlag("no-check");
 
     vector<float> A(M * K), B(K * N), C_ref(M * N, 0.0f), C_test(M * N, 0.0f);
-    default_random_engine gen;
-    uniform_real_distribution<float> dist(0.0f, 1.0f);
     for (auto& x : A) x = static_cast<float>(rand() % 10);
     for (auto& x : B) x = static_cast<float>(rand() % 10);
 
@@ -315,12 +337,9 @@ int main(int argc, char* argv[]) {
     testBlockSize<256, 256, 32, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<64, 256, 32, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
 
-    
-
     return 0;
-    
 }
-https://docs.google.com/document/d/1Bimz-7aHAvoNW3PCO_z7AtHp5IrsZQuZZ9397M_uMhM/edit?usp=sharing
+//https://docs.google.com/document/d/1Bimz-7aHAvoNW3PCO_z7AtHp5IrsZQuZZ9397M_uMhM/edit?usp=sharing
 
 
 //   float best_gflops = 0.0;
