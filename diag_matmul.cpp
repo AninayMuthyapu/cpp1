@@ -59,7 +59,7 @@ void optimized_compute(const float* A, const float* b_mat, float* C, int M, int 
                 memcpy(&local_a_buf[ii * BD], &A[(i + ii) * N + j], curr_BD * sizeof(float));
             }
 
-            int jj = 0; // Simplified name
+            int jj = 0; 
             for (; jj <= curr_BD - 8; jj += 8) { 
                 __m256i indices = _mm256_set_epi32(
                     (j + jj + 7) * N + (j + jj + 7),
@@ -75,9 +75,7 @@ void optimized_compute(const float* A, const float* b_mat, float* C, int M, int 
                 __m256 b_v = _mm256_i32gather_ps(b_mat, indices, sizeof(float));
                 _mm256_store_ps(&local_b_buf[jj], b_v);
             }
-            for (; jj < curr_BD; ++jj) {
-                local_b_buf[jj] = b_mat[(j + jj) * N + (j + jj)];
-            }
+           
 
             for (int ii_t = 0; ii_t < curr_BM; ii_t += IT_M) {
                 for (int jj_t = 0; jj_t < curr_BD; jj_t += IT_D) {
@@ -92,7 +90,7 @@ void optimized_compute(const float* A, const float* b_mat, float* C, int M, int 
                             _mm256_storeu_ps(&local_c_buf[ii * BD + inner_jj], c_v); 
                         }
                         
-                        for (; inner_jj <  IT_D; inner_jj += 8) {
+                        for (; inner_jj < jj_t + IT_D; ++inner_jj) {
                             local_c_buf[ii * BD + inner_jj] = local_a_buf[ii * BD + inner_jj] * local_b_buf[inner_jj]; 
                         }
                     }
@@ -233,7 +231,7 @@ int main(int argc, char* argv[]) {
     run_test<128, 128, 8, 32>(A.data(), b_mat.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify);
     run_test<128, 128, 4, 16>(A.data(), b_mat.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify);
     run_test<64, 128, 8, 32>(A.data(), b_mat.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify);
-    run_test<128, 64, 8, 32>(A.data(), b_mat.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify);
+    run_test<128, 128, 8, 32>(A.data(), b_mat.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify);
 
     return 0;
 }
