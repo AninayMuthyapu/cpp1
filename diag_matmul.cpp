@@ -144,7 +144,6 @@ void run_test(const float* A, const float* b_mat, float* C, const float* c_ref, 
     double gflops_val, time_val_ms; 
     bool is_ok = true;
 
-    // Warmup run
     if (M % BM == 0 && N % BD == 0) {
         optimized_compute<BM, BD, IT_M, IT_D, true, true>(A, b_mat, c_temp.data(), M, N, gflops_val, time_val_ms, a_buf, b_buf);
     } else {
