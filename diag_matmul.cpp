@@ -25,10 +25,10 @@ void ref_compute(const float* A, const float* b_mat, float* C, int M, int N) {
 }
 
 void openblas_compute(const float* A, const float* b_mat, float* C, int M, int N) {
-    // Copy A to C first
+    
     memcpy(C, A, M * N * sizeof(float));
     
-    // Scale each column by the corresponding diagonal element
+    
     for (int j = 0; j < N; ++j) {
         cblas_sscal(M, b_mat[j * N + j], &C[j], N);
     }
@@ -58,15 +58,15 @@ void optimized_compute(const float* A, const float* b_mat, float* C, int M, int 
             float* local_a_buf = a_buf[thread_id];
             float* local_b_buf = b_buf[thread_id];
 
-            int curr_BM = M_MULT_BM ? BM : std::min(BM, M - i);
-            int curr_BD = N_MULT_BD ? BD : std::min(BD, N - j);
+            int curr_BM = M_MULT_BM ? BM : min(BM, M - i);
+            int curr_BD = N_MULT_BD ? BD : min(BD, N - j);
 
-            // Load A block
+            
             for (int ii = 0; ii < curr_BM; ++ii) {
                 memcpy(&local_a_buf[ii * BD], &A[(i + ii) * N + j], curr_BD * sizeof(float));
             }
 
-            // Gather diagonal elements of B using the original logic
+            
             int jj = 0;
             for (; jj <= curr_BD - 8; jj += 8) {
                 __m256i indices = _mm256_set_epi32(
@@ -87,26 +87,26 @@ void optimized_compute(const float* A, const float* b_mat, float* C, int M, int 
                 local_b_buf[jj] = b_mat[(j + jj) * N + (j + jj)];
             }
 
-            // Compute using tiling
+           
             for (int ii_t = 0; ii_t < curr_BM; ii_t += IT_M) {
                 for (int jj_t = 0; jj_t < curr_BD; jj_t += IT_D) {
 
-                    // Load diagonal elements for current tile
+                    
                     __m256 b_vec_tile_avx[IT_D / 8];
                     for (int k = 0; k < IT_D / 8; ++k) {
                         b_vec_tile_avx[k] = _mm256_loadu_ps(&local_b_buf[jj_t + k * 8]);
                     }
 
-                    // Load A elements for current tile
+                    
                     __m256 a_vec_tile_avx[IT_M * (IT_D / 8)];
 
                     for (int ii = 0; ii < IT_M; ++ii) {
-                        // Load A elements
+                       
                         for (int k = 0; k < IT_D / 8; ++k) {
                             a_vec_tile_avx[ii * (IT_D / 8) + k] = _mm256_loadu_ps(&local_a_buf[(ii_t + ii) * BD + jj_t + k * 8]);
                         }
 
-                        // Multiply and store directly (removed c_vec_tile_avx)
+                        
                         for (int k = 0; k < IT_D / 8; ++k) {
                             __m256 result = _mm256_mul_ps(
                                 a_vec_tile_avx[ii * (IT_D / 8) + k],
@@ -225,10 +225,10 @@ void run_openblas_test(const float* A, const float* b_mat, float* C, const float
     float avg_time_val_ms = static_cast<float>(total_time_val_ms / itr_count);
     float avg_gflops_val = static_cast<float>((2.0 * M * N) / (avg_time_val_ms * 1e6));
     
-    test_results[res_idx][0] = 0; // No BM for OpenBLAS
-    test_results[res_idx][1] = 0; // No BD for OpenBLAS
-    test_results[res_idx][2] = 0; // No IT_M for OpenBLAS
-    test_results[res_idx][3] = 0; // No IT_D for OpenBLAS
+    test_results[res_idx][0] = 0; 
+    test_results[res_idx][1] = 0; 
+    test_results[res_idx][2] = 0; 
+    test_results[res_idx][3] = 0;
     test_results[res_idx][4] = avg_gflops_val;
     test_results[res_idx][5] = avg_time_val_ms;
     test_results[res_idx][6] = is_ok ? 1.0f : 0.0f;
@@ -267,12 +267,12 @@ int main(int argc, char* argv[]) {
 
     vector<float> A(M * N), b_mat(N * N, 0.0f), c_ref(M * N, 0.0f), c_test(M * N, 0.0f);
     
-    // Initialize A with random values
+    
     for (auto& x : A) {
         x = static_cast<float>(rand() % 10);
     }
     
-    // Initialize diagonal elements of B (full N×N matrix with only diagonal filled)
+    
     for (int idx = 0; idx < N; ++idx) {
         b_mat[idx * N + idx] = static_cast<float>(rand() % 10);
     }
@@ -284,10 +284,10 @@ int main(int argc, char* argv[]) {
     float test_results[100][7];
     int res_idx = 0;
 
-    // Run OpenBLAS test first
+    
     run_openblas_test(A.data(), b_mat.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify);
 
-    // Run optimized tests
+    
     run_test<64, 64, 8, 8>(A.data(), b_mat.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify, "Optimized");
     run_test<64, 64, 1, 16>(A.data(), b_mat.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify, "Optimized");
     run_test<128, 128, 8, 8>(A.data(), b_mat.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify, "Optimized");
@@ -301,78 +301,3 @@ int main(int argc, char* argv[]) {
 
 
 
-// template<int BM, int BD, int IT_M, int IT_D, bool M_MULT_BM, bool N_MULT_BD>
-// void optimized_compute(const float* A, const float* b_mat, float* C, int M, int N, 
-//                            double& gflops_val, double& time_val_ms, float** a_buf, float** b_buf, float** c_buf) {
-    
-    
-    
-//     auto start = chrono::high_resolution_clock::now();
-
-//     #pragma omp parallel for collapse(2) schedule(static)
-//     for (int i = 0; i < M; i += BM) {
-//         for (int j = 0; j < N; j += BD) {
-            
-//             int thread_id = omp_get_thread_num();
-//             float* local_a_buf = a_buf[thread_id];
-//             float* local_b_buf = b_buf[thread_id];
-//             float* local_c_buf = c_buf[thread_id]; 
-            
-//             int curr_BM = M_MULT_BM ? BM : min(BM, M - i);
-//             int curr_BD = N_MULT_BD ? BD : min(BD, N - j);
-            
-            
-//             for (int ii = 0; ii < curr_BM; ++ii) {
-               
-//                 memcpy(&local_a_buf[ii * BD], &A[(i + ii) * N + j], curr_BD * sizeof(float));
-//             }
-
-//             int jj = 0; 
-//             for (; jj <= curr_BD - 8; jj += 8) { 
-//                 __m256i indices = _mm256_set_epi32(
-//                     (j + jj + 7) * N + (j + jj + 7),
-//                     (j + jj + 6) * N + (j + jj + 6),
-//                     (j + jj + 5) * N + (j + jj + 5),
-//                     (j + jj + 4) * N + (j + jj + 4),
-//                     (j + jj + 3) * N + (j + jj + 3),
-//                     (j + jj + 2) * N + (j + jj + 2),
-//                     (j + jj + 1) * N + (j + jj + 1),
-//                     (j + jj + 0) * N + (j + jj + 0)
-//                 );
-                
-//                 __m256 b_v = _mm256_i32gather_ps(b_mat, indices, sizeof(float));
-//                 _mm256_store_ps(&local_b_buf[jj], b_v);
-//             }
-           
-
-//             for (int ii_t = 0; ii_t < curr_BM; ii_t += IT_M) {
-//                 for (int jj_t = 0; jj_t < curr_BD; jj_t += IT_D) {
-                    
-                   
-//                     for (int ii = ii_t; ii < ii_t + IT_M; ++ii) {
-//                         int inner_jj = jj_t; 
-//                         for (; inner_jj  <  IT_D; inner_jj += 8) { 
-//                             __m256 a_v = _mm256_load_ps(&local_a_buf[ii * BD + inner_jj]);
-//                             __m256 b_v = _mm256_load_ps(&local_b_buf[inner_jj]);
-//                             __m256 c_v = _mm256_mul_ps(a_v, b_v);
-//                             _mm256_storeu_ps(&local_c_buf[ii * BD + inner_jj], c_v); 
-//                         }
-                        
-//                         for (; inner_jj < jj_t + IT_D; ++inner_jj) {
-//                             local_c_buf[ii * BD + inner_jj] = local_a_buf[ii * BD + inner_jj] * local_b_buf[inner_jj]; 
-//                         }
-//                     }
-//                 }
-//             }
-
-            
-//             for (int ii = 0; ii < curr_BM; ++ii) {
-//                 memcpy(&C[(i + ii) * N + j], &local_c_buf[ii * BD], curr_BD * sizeof(float));
-//             }
-//         }
-//     }
-    
-//     auto end = chrono::high_resolution_clock::now();
-//     time_val_ms = chrono::duration<double, milli>(end - start).count();
-//     gflops_val = (2.0 * M * N) / (time_val_ms * 1e6); 
-// }
