@@ -33,32 +33,34 @@ bool verify(const float* c_test, const float* c_ref, int M, int N, float  tolera
     return true;
 }
 
+
 template<int BM, int BD, int IT_M, int IT_D, bool M_MULT_BM, bool N_MULT_BD>
-void optimized_compute(const float* A, const float* b_mat, float* C, int M, int N, 
-                           double& gflops_val, double& time_val_ms, float** a_buf, float** b_buf, float** c_buf) {
+void optimized_compute(const float* A, const float* b_mat, float* C, int M, int N,
+                            double& gflops_val, double& time_val_ms, float** a_buf, float** b_buf, float** c_buf) {
+
+   
     
+
     auto start = chrono::high_resolution_clock::now();
 
     #pragma omp parallel for collapse(2) schedule(static)
     for (int i = 0; i < M; i += BM) {
         for (int j = 0; j < N; j += BD) {
-            
+
             int thread_id = omp_get_thread_num();
             float* local_a_buf = a_buf[thread_id];
             float* local_b_buf = b_buf[thread_id];
-            float* local_c_buf = c_buf[thread_id]; 
-            
-            int curr_BM = M_MULT_BM ? BM : min(BM, M - i);
-            int curr_BD = N_MULT_BD ? BD : min(BD, N - j);
-            
-            
+            float* local_c_buf = c_buf[thread_id];
+
+            int curr_BM = M_MULT_BM ? BM : std::min(BM, M - i);
+            int curr_BD = N_MULT_BD ? BD : std::min(BD, N - j);
+
             for (int ii = 0; ii < curr_BM; ++ii) {
-                
                 memcpy(&local_a_buf[ii * BD], &A[(i + ii) * N + j], curr_BD * sizeof(float));
             }
 
-            int jj = 0; 
-            for (; jj <= curr_BD - 8; jj += 8) { 
+            int jj = 0;
+            for (; jj <= curr_BD - 8; jj += 8) {
                 __m256i indices = _mm256_set_epi32(
                     (j + jj + 7) * N + (j + jj + 7),
                     (j + jj + 6) * N + (j + jj + 6),
@@ -69,61 +71,62 @@ void optimized_compute(const float* A, const float* b_mat, float* C, int M, int 
                     (j + jj + 1) * N + (j + jj + 1),
                     (j + jj + 0) * N + (j + jj + 0)
                 );
-                
+
                 __m256 b_v = _mm256_i32gather_ps(b_mat, indices, sizeof(float));
                 _mm256_store_ps(&local_b_buf[jj], b_v);
             }
-            
+            for (; jj < curr_BD; ++jj) {
+                local_b_buf[jj] = b_mat[j + jj];
+            }
 
-            
+
             for (int ii_t = 0; ii_t < curr_BM; ii_t += IT_M) {
                 for (int jj_t = 0; jj_t < curr_BD; jj_t += IT_D) {
-                    
-                    
-                    
-                    
-                    float a_vec_tile[IT_M * IT_D];
-                    float b_vec_tile[IT_D];
-                    float c_vec_tile[IT_M * IT_D]; 
 
-                    
-                    memcpy(b_vec_tile, &local_b_buf[jj_t], IT_D * sizeof(float));
+                   
+                    __m256 b_vec_tile_avx[IT_D / 8];
+                    for (int k = 0; k < IT_D / 8; ++k) {
+                        b_vec_tile_avx[k] = _mm256_loadu_ps(&local_b_buf[jj_t + k * 8]);
+                    }
+
+                   
+                    __m256 a_vec_tile_avx[IT_M * (IT_D / 8)];
+                    __m256 c_vec_tile_avx[IT_M * (IT_D / 8)];
 
                     for (int ii = 0; ii < IT_M; ++ii) {
                         
-                        memcpy(&a_vec_tile[ii * IT_D], &local_a_buf[(ii_t + ii) * BD + jj_t], IT_D * sizeof(float));
+                        for (int k = 0; k < IT_D / 8; ++k) {
+                           
+                            a_vec_tile_avx[ii * (IT_D / 8) + k] = _mm256_loadu_ps(&local_a_buf[(ii_t + ii) * BD + jj_t + k * 8]);
+                        }
 
-                        int inner_jj = 0;
-                        for (; inner_jj + 8 < IT_D; inner_jj += 8) {
-                            __m256 a_v = _mm256_load_ps(&a_vec_tile[ii * IT_D + inner_jj]);
-                            __m256 b_v = _mm256_load_ps(&b_vec_tile[inner_jj]);
-                            __m256 c_v = _mm256_mul_ps(a_v, b_v);
-                            _mm256_storeu_ps(&c_vec_tile[ii * IT_D + inner_jj], c_v);
-                        }
                         
-                        for (; inner_jj < IT_D; ++inner_jj) {
-                            c_vec_tile[ii * IT_D + inner_jj] = a_vec_tile[ii * IT_D + inner_jj] * b_vec_tile[inner_jj];
+                        for (int k = 0; k < IT_D / 8; ++k) {
+                           
+                            c_vec_tile_avx[ii * (IT_D / 8) + k] = _mm256_mul_ps(
+                                a_vec_tile_avx[ii * (IT_D / 8) + k],
+                                b_vec_tile_avx[k]
+                            );
                         }
-                    }
-                   
-                    for(int ii = 0; ii < IT_M; ++ii) {
-                        memcpy(&local_c_buf[(ii_t + ii) * BD + jj_t], &c_vec_tile[ii * IT_D], IT_D * sizeof(float));
+
+                        
+                        for (int k = 0; k < IT_D / 8; ++k) {
+                            _mm256_storeu_ps(&local_c_buf[(ii_t + ii) * BD + jj_t + k * 8], c_vec_tile_avx[ii * (IT_D / 8) + k]);
+                        }
                     }
                 }
             }
 
-           
             for (int ii = 0; ii < curr_BM; ++ii) {
                 memcpy(&C[(i + ii) * N + j], &local_c_buf[ii * BD], curr_BD * sizeof(float));
             }
         }
     }
-    
+
     auto end = chrono::high_resolution_clock::now();
     time_val_ms = chrono::duration<double, milli>(end - start).count();
-    gflops_val = (2.0 * M * N) / (time_val_ms * 1e6); 
+    gflops_val = (2.0 * M * N) / (time_val_ms * 1e6);
 }
-
 template<int BM, int BD, int IT_M, int IT_D>
 void run_test(const float* A, const float* b_mat, float* C, const float* c_ref, int M, int N, int itr_count,
                    float test_results[][6], int& res_idx, bool do_verify) {
