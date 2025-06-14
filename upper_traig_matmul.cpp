@@ -92,9 +92,9 @@ void optimized_compute(const float* A, const float* B, float* C, int M, int N,
                             
                             
                             __m256 A_reg[IT_M]; 
+                           
                             for (int ii = 0; ii < IT_M; ++ii) {
-                                float a_val = local_a_buf[(ii_t + ii) * curr_K_block + kk_local];
-                                A_reg[ii] = _mm256_set1_ps(a_val); 
+                                A_reg[ii] = _mm256_broadcast_ss(&local_a_buf[(ii_t + ii) * curr_K_block + kk_local]);
                             }
 
                             int jj_inner = 0;
