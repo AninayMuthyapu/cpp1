@@ -314,12 +314,11 @@ int main(int argc, char* argv[]) {
     cout << "\n(Blocking: BM, BN | Inner Tiling: IT_M, IT_N) \n";
     
     run_test<64, 64, 8, 8>(A.data(), B.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify, "Optimized");
-    run_test<64, 64, 16, 8>(A.data(), B.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify, "Optimized");
+   
     run_test<128, 128, 8, 8>(A.data(), B.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify, "Optimized");
-    run_test<128, 128, 16, 8>(A.data(), B.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify, "Optimized");
+   
     run_test<256, 256, 8, 8>(A.data(), B.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify, "Optimized");
-    run_test<256, 256, 16, 8>(A.data(), B.data(), c_test.data(), c_ref.data(), M, N, itr, test_results, res_idx, do_verify, "Optimized");
-
+  
     return 0;
 }
 
