@@ -150,22 +150,11 @@ void run_test(const float* A, const float* B, float* C, const float* c_ref,
     float** c_buf = new float*[num_threads];
 
     for (int t = 0; t < num_threads; ++t) {
-        a_buf[t] = (float*)aligned_alloc(pg_size, ((size_t)BM * N * sizeof(float) + pg_size - 1) / pg_size * pg_size);
-        b_buf[t] = (float*)aligned_alloc(pg_size, ((size_t)N * BN * sizeof(float) + pg_size - 1) / pg_size * pg_size);
+        a_buf[t] = (float*)aligned_alloc(pg_size, ((size_t)BM * BN * sizeof(float) + pg_size - 1) / pg_size * pg_size);
+        b_buf[t] = (float*)aligned_alloc(pg_size, ((size_t)BN * BN * sizeof(float) + pg_size - 1) / pg_size * pg_size);
         c_buf[t] = (float*)aligned_alloc(pg_size, ((size_t)BM * BN * sizeof(float) + pg_size - 1) / pg_size * pg_size);
 
-        if (!a_buf[t] || !b_buf[t] || !c_buf[t]) {
-            cerr << "Error: Aligned memory allocation failed for thread " << t << endl;
-            for (int prev_t = 0; prev_t < t; ++prev_t) {
-                free(a_buf[prev_t]);
-                free(b_buf[prev_t]);
-                free(c_buf[prev_t]);
-            }
-            delete[] a_buf;
-            delete[] b_buf;
-            delete[] c_buf;
-            exit(EXIT_FAILURE);
-        }
+        
     }
 
     double gflops_val, time_val_ms;
