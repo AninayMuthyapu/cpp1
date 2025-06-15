@@ -280,6 +280,51 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
+
+results
+:
+aninay@aninay-ASUS-TUF-Gaming-A15-FA507NUR-FA507NUR:~/cpp1/cpp1$ ./ut_matmul --m 1024 --n 1024  --itr 10
+
+OpenBLAS Test 
+OpenBLAS | Time: 4.045 ms | Avg GFLOP/s: 132.857 | PASS
+
+(Blocking: BM, BN, BK | Inner Tiling: IT_M, IT_N) 
+Optimized | BM×BN×BK = 64×64×32 | IT_M×IT_N = 8×8 | Time: 9.469 ms | Avg GFLOP/s: 95.579 | PASS
+Optimized | BM×BN×BK = 128×128×64 | IT_M×IT_N = 8×8 | Time: 3.620 ms | Avg GFLOP/s: 148.719 | PASS
+Optimized | BM×BN×BK = 256×256×128 | IT_M×IT_N = 8×8 | Time: 4.918 ms | Avg GFLOP/s: 109.956 | PASS
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // #include <immintrin.h>
 // #include <omp.h>
 // #include <chrono>
