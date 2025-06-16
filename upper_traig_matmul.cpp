@@ -74,24 +74,31 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, do
                 }
 
                 
-                bool is_B_block_zero = true;
+                 bool is_B_block_zero = true;
                 for (int kk = 0; kk < BK; ++kk) {
                     int global_k = k1 + kk;
+                    
                     int valid_cols = min(BN, N - n1);
-                    for (int jj = 0; jj < valid_cols; ++jj) {
-                        int global_j = n1 + jj;
-                        local_B_cache[kk * BN + jj] = B[global_k * N + global_j];
-                        if (B[global_k * N + global_j] != 0.0f) {
-                            is_B_block_zero = false;
+                    memcpy(&local_B_cache[kk * BN], &B[global_k * N + n1], valid_cols * sizeof(float));
+                    
+                    
+                    if (is_B_block_zero) {
+                        for (int jj = 0; jj < valid_cols; ++jj) {
+                            if (local_B_cache[kk * BN + jj] != 0.0f) {
+                                is_B_block_zero = false;
+                                break;
+                            }
                         }
                     }
                 }
 
                 
                 if (is_B_block_zero) {
-                    continue;  
+                    continue;
                 }
 
+                
+                
                 for (int i = 0; i < BM; i += IT_M) {
                     for (int j = 0; j < BN; j += j_step) {
 
