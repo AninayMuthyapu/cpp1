@@ -74,13 +74,22 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, do
                 }
 
                 
+                bool is_B_block_zero = true;
                 for (int kk = 0; kk < BK; ++kk) {
                     int global_k = k1 + kk;
                     int valid_cols = min(BN, N - n1);
                     for (int jj = 0; jj < valid_cols; ++jj) {
                         int global_j = n1 + jj;
                         local_B_cache[kk * BN + jj] = B[global_k * N + global_j];
+                        if (B[global_k * N + global_j] != 0.0f) {
+                            is_B_block_zero = false;
+                        }
                     }
+                }
+
+                
+                if (is_B_block_zero) {
+                    continue;  
                 }
 
                 for (int i = 0; i < BM; i += IT_M) {
