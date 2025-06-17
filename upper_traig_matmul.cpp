@@ -18,6 +18,7 @@ void compute_reference(float* A, float* B, float* C, int M, int N, int K) {
         for (int j = 0; j < N; ++j) {
             float sum = 0.0f;
             for (int k = 0; k <= j; ++k) {
+                if (k < K) {
                     sum += A[i * K + k] * B[k * N + j];
                 }
             }
@@ -37,8 +38,10 @@ bool verify_result(float* C_test, float* C_ref, int M, int N, float tolerance = 
 }
 
 template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
-void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, double& gflops, double& time_ms, float** C_cache, float** A_cache, float** B_cache) {
-   constexpr int vector_width = 8;
+void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, 
+                         double& gflops, double& time_ms, 
+                         float** C_cache, float** A_cache, float** B_cache) {
+    constexpr int vector_width = 8;
     constexpr int j_step = IT_N;
 
     auto start = high_resolution_clock::now();
@@ -46,129 +49,85 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, do
     #pragma omp parallel for collapse(2) schedule(static)
     for (int m1 = 0; m1 < M; m1 += BM) {
         for (int n1 = 0; n1 < N; n1 += BN) {
-
             int thread_id = omp_get_thread_num();
-            float* local_C_cache = C_cache[thread_id];
-            float* local_A_cache = A_cache[thread_id];
-            float* local_B_cache = B_cache[thread_id];
+            float* local_C = C_cache[thread_id];
+            float* local_A = A_cache[thread_id];
+            float* local_B = B_cache[thread_id];
 
-            
             for (int i = 0; i < BM; ++i) {
                 int global_row = m1 + i;
                 int valid_cols = min(BN, N - n1);
-                
-                memcpy(&local_C_cache[i * BN], &C[global_row * N + n1], valid_cols * sizeof(float));
-                    
-                
+                memcpy(&local_C[i * BN], &C[global_row * N + n1], valid_cols * sizeof(float));
             }
 
             for (int k1 = 0; k1 < K; k1 += BK) {
-
-                
                 for (int mm = 0; mm < BM; ++mm) {
                     int global_row = m1 + mm;
                     int valid_cols = min(BK, K - k1);
-                    
-                    memcpy(&local_A_cache[mm * BK], &A[global_row * K + k1], valid_cols * sizeof(float));
-                        
+                    memcpy(&local_A[mm * BK], &A[global_row * K + k1], valid_cols * sizeof(float));
                 }
 
-                
-                 bool is_B_block_zero = true;
                 for (int kk = 0; kk < BK; ++kk) {
                     int global_k = k1 + kk;
-                    
-                    int valid_cols = min(BN, N - n1);
-                    memcpy(&local_B_cache[kk * BN], &B[global_k * N + n1], valid_cols * sizeof(float));
-                    
-                    
-                    if (is_B_block_zero) {
-                        for (int jj = 0; jj < valid_cols; ++jj) {
-                            if (local_B_cache[kk * BN + jj] != 0.0f) {
-                                is_B_block_zero = false;
-                                break;
-                            }
-                        }
+                    memset(&local_B[kk * BN], 0, BN * sizeof(float));
+
+                    int j_start = max(0, global_k - n1);
+                    int j_end_block = min(BN, N - n1);
+                    if (j_start < j_end_block) {
+                        memcpy(&local_B[kk * BN + j_start], &B[global_k * N + n1 + j_start], 
+                               (j_end_block - j_start) * sizeof(float));
                     }
                 }
 
-                
-                if (is_B_block_zero) {
-                    continue;
-                }
-
-                
-                
                 for (int i = 0; i < BM; i += IT_M) {
                     for (int j = 0; j < BN; j += j_step) {
-
-                        __m256 C_vec[IT_M][IT_N / 8];
-
+                        __m256 C_tile[IT_M][IT_N / vector_width];
                         for (int mm = 0; mm < IT_M; ++mm) {
                             for (int nn = 0; nn < IT_N / 8; ++nn) {
                                 int col_offset = j + nn * vector_width;
-                                if (col_offset + vector_width <= BN)
-                                    C_vec[mm][nn] = _mm256_loadu_ps(&local_C_cache[(i + mm) * BN + col_offset]);
-                                
+                                C_tile[mm][nn] = _mm256_loadu_ps(&local_C[(i + mm) * BN + col_offset]);
                             }
                         }
 
                         for (int p = 0; p < BK; p += IT_K) {
-                            for (int kk = 0; kk < IT_K; ++kk) {
-                                int depth = p + kk;
-                                if (depth >= BK) continue;
-
+                            for (int kk_inner = 0; kk_inner < IT_K; ++kk_inner) {
+                                int depth_local = p + kk_inner;
+                                int k_global = k1 + depth_local;
+                                
                                 __m256 A_vec[IT_M];
-                                __m256 B_vec[IT_N / 8];
-
                                 for (int mm = 0; mm < IT_M; ++mm) {
-                                    A_vec[mm] = _mm256_broadcast_ss(&local_A_cache[(i + mm) * BK + depth]);
+                                    A_vec[mm] = _mm256_broadcast_ss(&local_A[(i + mm) * BK + depth_local]);
                                 }
 
-                                for (int nn = 0; nn < IT_N / 8; ++nn) {
+                                __m256 B_vec[IT_N / vector_width];
+                                for (int nn = 0; nn < IT_N / vector_width; ++nn) {
                                     int col_offset = j + nn * vector_width;
-                                    if (col_offset + vector_width <= BN) {
-                                        B_vec[nn] = _mm256_loadu_ps(&local_B_cache[depth * BN + col_offset]);
-                                    } else {
-                                        
-                                        float tmp[vector_width] = {0};
-                                        int valid = BN - col_offset;
-                                        memcpy(tmp, &local_B_cache[depth * BN + col_offset], valid * sizeof(float));
-                                        B_vec[nn] = _mm256_loadu_ps(tmp);
-                                    }
+                                    B_vec[nn] = _mm256_loadu_ps(&local_B[depth_local * BN + col_offset]);
                                 }
 
                                 for (int mm = 0; mm < IT_M; ++mm) {
-                                    for (int nn = 0; nn < IT_N / 8; ++nn) {
-                                        C_vec[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_vec[mm][nn]);
+                                    for (int nn = 0; nn < IT_N / vector_width; ++nn) {
+                                        C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_tile[mm][nn]);
                                     }
                                 }
                             }
                         }
 
                         for (int mm = 0; mm < IT_M; ++mm) {
-                            for (int nn = 0; nn < IT_N / 8; ++nn) {
+                            for (int nn = 0; nn < IT_N / vector_width; ++nn) {
                                 int col_offset = j + nn * vector_width;
-                                if (col_offset + vector_width <= BN)
-                                    _mm256_storeu_ps(&local_C_cache[(i + mm) * BN + col_offset], C_vec[mm][nn]);
-                                else {
-                                    float tmp[vector_width];
-                                    _mm256_storeu_ps(tmp, C_vec[mm][nn]);
-                                    int valid = BN - col_offset;
-                                    memcpy(&local_C_cache[(i + mm) * BN + col_offset], tmp, valid * sizeof(float));
-                                }
+                                _mm256_storeu_ps(&local_C[(i + mm) * BN + col_offset], C_tile[mm][nn]);
                             }
                         }
                     }
                 }
             }
 
-           
             for (int i = 0; i < BM; ++i) {
                 int global_row = m1 + i;
                 if (global_row < M) {
                     int valid_cols = min(BN, N - n1);
-                    memcpy(&C[global_row * N + n1], &local_C_cache[i * BN], valid_cols * sizeof(float));
+                    memcpy(&C[global_row * N + n1], &local_C[i * BN], valid_cols * sizeof(float));
                 }
             }
         }
@@ -179,16 +138,13 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, do
     gflops = (2.0 * M * N * K) / (time_ms * 1e6);
 }
 
-
 void compute_openblas(float* A, float* B, float* C, int M, int N, int K, double& gflops, double& time_ms) {
     auto start = high_resolution_clock::now();
-
+    
+    memcpy(C, A, M * K * sizeof(float));
     float alpha = 1.0f;
-    float beta = 0.0f;
-
-    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                M, N, K, alpha, A, K, B, N, beta, C, N);
-
+    cblas_strmm(CblasRowMajor, CblasRight, CblasUpper, CblasNoTrans, CblasNonUnit,
+                M, N, alpha, B, N, C, N);
     auto end = high_resolution_clock::now();
     time_ms = duration<double, milli>(end - start).count();
     gflops = (2.0 * M * N * K) / (time_ms * 1e6);
@@ -316,7 +272,7 @@ int main(int argc, char* argv[]) {
 
     opt.processCommandArgs(argc, argv);
 
-   
+    
 
     int M = atoi(opt.getValue("m"));
     int N = atoi(opt.getValue("n"));
@@ -325,20 +281,18 @@ int main(int argc, char* argv[]) {
     bool check_results = !opt.getFlag("no-check");
 
    
-
-
     vector<float> A(M * K), B(K * N), C_ref(M * N, 0.0f), C_test(M * N, 0.0f);
     for (auto& x : A) x = static_cast<float>(rand() % 10);
 
-    for (int i = 0; i < N; ++i) {
-        for (int j = 0; j < N; ++j) {
-            if (j >= i) {
-                B[i * N + j] = static_cast<float>(rand() % 10 + 1);
-            } else {
-                B[i * N + j] = 0.0f;
-            }
+    for (int i = 0; i < K; ++i) {
+    for (int j = 0; j < N; ++j) {
+        if (j >= i) {
+            B[i * N + j] = static_cast<float>(rand() % 10 + 1);
+        } else {
+            B[i * N + j] = 0.0f;
         }
     }
+}
 
     if (check_results) {
         compute_reference(A.data(), B.data(), C_ref.data(), M, N, K);
@@ -355,6 +309,13 @@ int main(int argc, char* argv[]) {
     
     return 0;
 }
+// aninay@aninay-ASUS-TUF-Gaming-A15-FA507NUR-FA507NUR:~/cpp1/cpp1$ ./ut_matmul --m 1024 --n 1024 --k 1024 --itr 10
+// OpenBLAS | Time: 2.144 ms | Avg GFLOP/s: 1002.421 | PASS
+// BMxBNxBK = 128x128x128 | IT_MxIT_NxIT_K = 8x8x1 | Time: 9.853 ms | Avg GFLOP/s: 359.182 | PASS
+// BMxBNxBK = 256x256x256 | IT_MxIT_NxIT_K = 8x8x1 | Time: 5.055 ms | Avg GFLOP/s: 425.881 | PASS
+// BMxBNxBK = 64x64x64 | IT_MxIT_NxIT_K = 8x8x1 | Time: 3.840 ms | Avg GFLOP/s: 571.595 | PASS
+
+
 
 // #include <iostream>
 // #include <vector>
