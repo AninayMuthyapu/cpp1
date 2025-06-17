@@ -18,9 +18,9 @@ void compute_reference(float* A, float* B, float* C, int M, int N, int K) {
         for (int j = 0; j < N; ++j) {
             float sum = 0.0f;
             for (int k = 0; k <= j; ++k) {
-                if (k < K) {
+                
                     sum += A[i * K + k] * B[k * N + j];
-                }
+                
             }
             C[i * N + j] = sum;
         }
