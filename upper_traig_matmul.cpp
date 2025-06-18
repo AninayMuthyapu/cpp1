@@ -17,10 +17,8 @@ void compute_reference(float* A, float* B, float* C, int M, int N, int K) {
     for (int i = 0; i < M; ++i) {
         for (int j = 0; j < N; ++j) {
             float sum = 0.0f;
-            for (int k = 0; k <= j; ++k) {
-                
-                    sum += A[i * K + k] * B[k * N + j];
-                
+            for (int k = 0; k < K; ++k) {
+                sum += A[i * K + k] * B[k * N + j];
             }
             C[i * N + j] = sum;
         }
@@ -37,18 +35,19 @@ bool verify_result(float* C_test, float* C_ref, int M, int N, float tolerance = 
     return true;
 }
 
-template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
+template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K, bool IsMDivisible, bool IsNDivisible, bool IsKDivisible>
 void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, 
                          double& gflops, double& time_ms, 
                          float** C_cache, float** A_cache, float** B_cache) {
     constexpr int vector_width = 8;
-    constexpr int j_step = IT_N;
+    
 
     auto start = high_resolution_clock::now();
 
     #pragma omp parallel for collapse(2) schedule(static)
     for (int m1 = 0; m1 < M; m1 += BM) {
         for (int n1 = 0; n1 < N; n1 += BN) {
+
             int thread_id = omp_get_thread_num();
             float* local_C = C_cache[thread_id];
             float* local_A = A_cache[thread_id];
@@ -56,36 +55,51 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
 
             for (int i = 0; i < BM; ++i) {
                 int global_row = m1 + i;
-                int valid_cols = min(BN, N - n1);
+                int valid_cols =  min(BN, N - n1);
                 memcpy(&local_C[i * BN], &C[global_row * N + n1], valid_cols * sizeof(float));
+                
+                
             }
 
             for (int k1 = 0; k1 < K; k1 += BK) {
+
                 for (int mm = 0; mm < BM; ++mm) {
                     int global_row = m1 + mm;
                     int valid_cols = min(BK, K - k1);
-                    memcpy(&local_A[mm * BK], &A[global_row * K + k1], valid_cols * sizeof(float));
-                }
+                    
+                        memcpy(&local_A[mm * BK], &A[global_row * K + k1], valid_cols * sizeof(float));
+                    }
 
                 for (int kk = 0; kk < BK; ++kk) {
-                    int global_k = k1 + kk;
-                    memset(&local_B[kk * BN], 0, BN * sizeof(float));
-
-                    int j_start = max(0, global_k - n1);
-                    int j_end_block = min(BN, N - n1);
-                    if (j_start < j_end_block) {
-                        memcpy(&local_B[kk * BN + j_start], &B[global_k * N + n1 + j_start], 
-                               (j_end_block - j_start) * sizeof(float));
-                    }
+                       memset(&local_B[kk * BN], 0, BN * sizeof(float));
                 }
 
+
+                if (n1 + BN > k1) {
+                    for (int kk = 0; kk < BK; ++kk) {
+                        int global_k = k1 + kk;
+
+                        int j_start = max(0, global_k - n1);
+                        int j_end =  min(BN, N - n1);
+                        int copy_size = j_end - j_start;
+                        
+                        memcpy(&local_B[kk * BN + j_start], &B[global_k * N + n1 + j_start], copy_size * sizeof(float));
+
+                    }
+                }
+            
+
                 for (int i = 0; i < BM; i += IT_M) {
-                    for (int j = 0; j < BN; j += j_step) {
+                    for (int j = 0; j < BN; j += IT_N) {
+
                         __m256 C_tile[IT_M][IT_N / vector_width];
+
                         for (int mm = 0; mm < IT_M; ++mm) {
-                            for (int nn = 0; nn < IT_N / 8; ++nn) {
+                            for (int nn = 0; nn < IT_N / vector_width; ++nn) {
                                 int col_offset = j + nn * vector_width;
-                                C_tile[mm][nn] = _mm256_loadu_ps(&local_C[(i + mm) * BN + col_offset]);
+                                
+                                C_tile[mm][nn] = _mm256_loadu_ps(&local_C[ (i + mm) * BN + col_offset]);
+                                
                             }
                         }
 
@@ -93,21 +107,18 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
                             for (int kk_inner = 0; kk_inner < IT_K; ++kk_inner) {
                                 int depth_local = p + kk_inner;
                                 int k_global = k1 + depth_local;
-                                
+
                                 __m256 A_vec[IT_M];
                                 for (int mm = 0; mm < IT_M; ++mm) {
                                     A_vec[mm] = _mm256_broadcast_ss(&local_A[(i + mm) * BK + depth_local]);
                                 }
 
-                                __m256 B_vec[IT_N / vector_width];
                                 for (int nn = 0; nn < IT_N / vector_width; ++nn) {
                                     int col_offset = j + nn * vector_width;
-                                    B_vec[nn] = _mm256_loadu_ps(&local_B[depth_local * BN + col_offset]);
-                                }
-
-                                for (int mm = 0; mm < IT_M; ++mm) {
-                                    for (int nn = 0; nn < IT_N / vector_width; ++nn) {
-                                        C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_tile[mm][nn]);
+                                    __m256 B_vec = _mm256_loadu_ps(&local_B[depth_local * BN + col_offset]);
+                                    
+                                    for (int mm = 0; mm < IT_M; ++mm) {
+                                        C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec, C_tile[mm][nn]);
                                     }
                                 }
                             }
@@ -116,7 +127,9 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
                         for (int mm = 0; mm < IT_M; ++mm) {
                             for (int nn = 0; nn < IT_N / vector_width; ++nn) {
                                 int col_offset = j + nn * vector_width;
+                               
                                 _mm256_storeu_ps(&local_C[(i + mm) * BN + col_offset], C_tile[mm][nn]);
+                                
                             }
                         }
                     }
@@ -125,10 +138,11 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
 
             for (int i = 0; i < BM; ++i) {
                 int global_row = m1 + i;
-                if (global_row < M) {
-                    int valid_cols = min(BN, N - n1);
-                    memcpy(&C[global_row * N + n1], &local_C[i * BN], valid_cols * sizeof(float));
-                }
+                
+                int valid_cols =  min(BN, N - n1);
+                
+                 memcpy(&C[global_row * N + n1], &local_C[i * BN], valid_cols * sizeof(float));
+                
             }
         }
     }
@@ -140,11 +154,22 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
 
 void compute_openblas(float* A, float* B, float* C, int M, int N, int K, double& gflops, double& time_ms) {
     auto start = high_resolution_clock::now();
-    
-    memcpy(C, A, M * K * sizeof(float));
+
     float alpha = 1.0f;
-    cblas_strmm(CblasRowMajor, CblasRight, CblasUpper, CblasNoTrans, CblasNonUnit,
-                M, N, alpha, B, N, C, N);
+    float beta = 0.0f;
+
+    cblas_sgemm(CblasRowMajor,
+                CblasNoTrans,
+                CblasNoTrans,
+                M,
+                N,
+                K,
+                alpha,
+                A, K,
+                B, N,
+                beta,
+                C, N);
+
     auto end = high_resolution_clock::now();
     time_ms = duration<double, milli>(end - start).count();
     gflops = (2.0 * M * N * K) / (time_ms * 1e6);
@@ -163,6 +188,7 @@ void testOpenBLAS(float* A, float* B, float* C, float* C_ref, int M, int N, int 
     double total_time_ms = 0.0;
 
     for (int i = 0; i < iterations; ++i) {
+        memset(C, 0, M * N * sizeof(float)); 
         compute_openblas(A, B, C, M, N, K, gflops, time_ms);
         total_gflops += gflops;
         total_time_ms += time_ms;
@@ -207,7 +233,7 @@ void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int
     }
 
     double gflops, time_ms;
-    compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K>(
+    compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K, false, false, false>(
         A, B, C_copy.data(), M, N, K, gflops, time_ms, C_cache, A_cache, B_cache);
 
     bool is_correct = true;
@@ -219,7 +245,8 @@ void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int
     double total_time_ms = 0.0;
 
     for (int i = 0; i < iterations; ++i) {
-        compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K>(
+        memset(C_copy.data(), 0, M * N * sizeof(float)); 
+        compute_matrix_multi1<BM, BN, BK, IT_M, IT_N, IT_K, false, false, false>(
             A, B, C_copy.data(), M, N, K, gflops, time_ms, C_cache, A_cache, B_cache);
         total_gflops += gflops;
         total_time_ms += time_ms;
@@ -272,7 +299,11 @@ int main(int argc, char* argv[]) {
 
     opt.processCommandArgs(argc, argv);
 
-    
+    if (opt.getFlag("help") || !opt.getValue("m") || !opt.getValue("n") ||
+        !opt.getValue("k") || !opt.getValue("itr")) {
+        cout << "Usage: " << argv[0] << " --m <rows> --n <cols> --k <inner> --itr <iterations> [--no-check]\n";
+        return 1;
+    }
 
     int M = atoi(opt.getValue("m"));
     int N = atoi(opt.getValue("n"));
@@ -280,19 +311,23 @@ int main(int argc, char* argv[]) {
     int itr = atoi(opt.getValue("itr"));
     bool check_results = !opt.getFlag("no-check");
 
-   
+    if (check_results && K != N) {
+        cerr << "Warning: For A * UpperTriangular_B with verification enabled, it's strongly recommended that K (inner dimension of A) equals N (dimension of triangular B)." << endl;
+        cerr << "The compute_reference function and how cblas_sgemm is used assume B is N x N and triangular. If K != N, verification might still fail or yield unexpected results." << endl;
+    }
+
     vector<float> A(M * K), B(K * N), C_ref(M * N, 0.0f), C_test(M * N, 0.0f);
     for (auto& x : A) x = static_cast<float>(rand() % 10);
 
-    for (int i = 0; i < K; ++i) {
-    for (int j = 0; j < N; ++j) {
-        if (j >= i) {
-            B[i * N + j] = static_cast<float>(rand() % 10 + 1);
-        } else {
-            B[i * N + j] = 0.0f;
+    for (int i = 0; i < K; ++i) { 
+        for (int j = 0; j < N; ++j) { 
+            if (j >= i) { 
+                B[i * N + j] = static_cast<float>(rand() % 10 + 1);
+            } else {
+                B[i * N + j] = 0.0f;
+            }
         }
     }
-}
 
     if (check_results) {
         compute_reference(A.data(), B.data(), C_ref.data(), M, N, K);
