@@ -73,20 +73,21 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
                         }
 
                     for (int kk = 0; kk < BK; ++kk) {
-                           memset(&local_B[kk * BN], 0, BN * sizeof(float));
+                        memset(&local_B[kk * BN], 0, BN * sizeof(float));
                     }
                     for (int kk = 0; kk < BK; ++kk) {
                         int global_k = k1 + kk;
 
-                        int j_start = max(0, global_k - n1);
-                        int j_end =  min(BN, N - n1);
-                        int copy_size = j_end - j_start;
-                        
-                        memcpy(&local_B[kk * BN + j_start], &B[global_k * N + n1 + j_start], copy_size * sizeof(float));
+    
+                        int j_start = (global_k > n1) ? (global_k - n1) : 0;
+                        int j_end = min(BN, N - n1);
 
+                        int copy_size = j_end - j_start;
+
+                        memcpy(&local_B[kk * BN + j_start], &B[global_k * N + n1 + j_start], copy_size * sizeof(float));
                     }
-                    
-                    
+
+
                     for (int i = 0; i < BM; i += IT_M) {
                         for (int j = 0; j < BN; j += IT_N) {
 
@@ -652,6 +653,64 @@ int main(int argc, char* argv[]) {
    
 //     return 0;
 // }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
