@@ -297,11 +297,7 @@ int main(int argc, char* argv[]) {
 
     opt.processCommandArgs(argc, argv);
 
-    if (opt.getFlag("help") || !opt.getValue("m") || !opt.getValue("n") ||
-        !opt.getValue("k") || !opt.getValue("itr")) {
-        cout << "Usage: " << argv[0] << " --m <rows> --n <cols> --k <inner> --itr <iterations> [--no-check]\n";
-        return 1;
-    }
+    
 
     int M = atoi(opt.getValue("m"));
     int N = atoi(opt.getValue("n"));
@@ -309,10 +305,7 @@ int main(int argc, char* argv[]) {
     int itr = atoi(opt.getValue("itr"));
     bool check_results = !opt.getFlag("no-check");
 
-    if (check_results && K != N) {
-        cerr << "Warning: For A * UpperTriangular_B with verification enabled, it's strongly recommended that K (inner dimension of A) equals N (dimension of triangular B)." << endl;
-        cerr << "The compute_reference function and how cblas_sgemm is used assume B is N x N and triangular. If K != N, verification might still fail or yield unexpected results." << endl;
-    }
+    
 
     vector<float> A(M * K), B(K * N), C_ref(M * N, 0.0f), C_test(M * N, 0.0f);
     for (auto& x : A) x = static_cast<float>(rand() % 10);
@@ -343,10 +336,10 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 // aninay@aninay-ASUS-TUF-Gaming-A15-FA507NUR-FA507NUR:~/cpp1/cpp1$ ./ut_matmul --m 1024 --n 1024 --k 1024 --itr 10
-// OpenBLAS | Time: 2.144 ms | Avg GFLOP/s: 1002.421 | PASS
-// BMxBNxBK = 128x128x128 | IT_MxIT_NxIT_K = 8x8x1 | Time: 9.853 ms | Avg GFLOP/s: 359.182 | PASS
-// BMxBNxBK = 256x256x256 | IT_MxIT_NxIT_K = 8x8x1 | Time: 5.055 ms | Avg GFLOP/s: 425.881 | PASS
-// BMxBNxBK = 64x64x64 | IT_MxIT_NxIT_K = 8x8x1 | Time: 3.840 ms | Avg GFLOP/s: 571.595 | PASS
+// OpenBLAS | Time: 2.782 ms | Avg GFLOP/s: 774.211 | PASS
+// BMxBNxBK = 128x128x128 | IT_MxIT_NxIT_K = 8x8x1 | Time: 10.072 ms | Avg GFLOP/s: 245.288 | PASS
+// BMxBNxBK = 256x256x256 | IT_MxIT_NxIT_K = 8x8x1 | Time: 6.776 ms | Avg GFLOP/s: 324.363 | PASS
+// BMxBNxBK = 64x64x64 | IT_MxIT_NxIT_K = 8x8x1 | Time: 2.484 ms | Avg GFLOP/s: 960.357 | PASS
 
 
 
@@ -659,6 +652,35 @@ int main(int argc, char* argv[]) {
    
 //     return 0;
 // }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
