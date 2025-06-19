@@ -63,19 +63,18 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
 
             for (int k1 = 0; k1 < K; k1 += BK) {
 
-                for (int mm = 0; mm < BM; ++mm) {
-                    int global_row = m1 + mm;
-                    int valid_cols = min(BK, K - k1);
-                    
-                        memcpy(&local_A[mm * BK], &A[global_row * K + k1], valid_cols * sizeof(float));
-                    }
-
-                for (int kk = 0; kk < BK; ++kk) {
-                       memset(&local_B[kk * BN], 0, BN * sizeof(float));
-                }
-
-
+                
                 if (n1 + BN > k1) {
+                    for (int mm = 0; mm < BM; ++mm) {
+                        int global_row = m1 + mm;
+                        int valid_cols = min(BK, K - k1);
+                        
+                            memcpy(&local_A[mm * BK], &A[global_row * K + k1], valid_cols * sizeof(float));
+                        }
+
+                    for (int kk = 0; kk < BK; ++kk) {
+                           memset(&local_B[kk * BN], 0, BN * sizeof(float));
+                    }
                     for (int kk = 0; kk < BK; ++kk) {
                         int global_k = k1 + kk;
 
