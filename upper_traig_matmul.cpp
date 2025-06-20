@@ -114,8 +114,7 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
                                     }
 
                                     int local_j_start = (global_k > n1) ? (global_k - n1) : 0;
-                                    int nn_start = (j + vector_width - 1 < local_j_start)? ((local_j_start - j + vector_width - 1) / vector_width): 0;
-
+                                    int nn_start = (j < local_j_start)? ((local_j_start - j) / vector_width): 0;
                                     
                                     for (int nn = nn_start; nn < IT_N / vector_width; ++nn) {
                                         int col_offset = j + nn * vector_width;
@@ -157,6 +156,7 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
     time_ms = duration<double, milli>(end - start).count();
     gflops = (2.0 * M * N * K) / (time_ms * 1e6);
 }
+
 void compute_openblas(float* A, float* B, float* C, int M, int N, int K, double& gflops, double& time_ms) {
     auto start = high_resolution_clock::now();
 
@@ -339,6 +339,10 @@ int main(int argc, char* argv[]) {
     testBlockSize<128, 128, 128, 8, 8, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<256, 256, 256, 8, 8, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<64, 64, 64, 8, 8, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+     testBlockSize<128, 128, 128, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<256, 256, 256, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<64, 64, 64, 4, 16, 1>(A.data(), B.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    
     
     return 0;
 }
