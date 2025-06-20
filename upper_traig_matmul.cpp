@@ -89,7 +89,6 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
                         for (int j = 0; j < BN; j += IT_N) {
 
                             __m256 C_tile[IT_M][IT_N / vector_width];
-                            __m256 B_vec[IT_N / vector_width];
 
                             for (int mm = 0; mm < IT_M; ++mm) {
                                 for (int nn = 0; nn < IT_N / vector_width; ++nn) {
@@ -108,14 +107,14 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
                                         A_vec[mm] = _mm256_broadcast_ss(&local_A[(i + mm) * BK + depth_local]);
                                     }
 
-                                    int local_j_start = (global_k > n1) ? (global_k - n1) : 0;
-                                    int nn_start = (j < local_j_start) ? ((local_j_start - j) / vector_width) : 0;
+                                    __m256 B_vec[IT_N / 8];
+                                    for (int nn = 0; nn < IT_N / 8; ++nn) {
+                                       
+                                        B_vec[nn] = _mm256_loadu_ps(&local_B[depth_local * BN + j + nn * vector_width]);
+                                    }
 
-                                    for (int nn = nn_start; nn < IT_N / vector_width; ++nn) {
-                                        int col_offset = j + nn * vector_width;
-                                        B_vec[nn] = _mm256_loadu_ps(&local_B[depth_local * BN + col_offset]);
-
-                                        for (int mm = 0; mm < IT_M; ++mm) {
+                                    for (int mm = 0; mm < IT_M; ++mm) {
+                                        for (int nn = 0; nn < IT_N / vector_width; ++nn) {
                                             C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_tile[mm][nn]);
                                         }
                                     }
@@ -145,6 +144,7 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
     time_ms = duration<double, milli>(end - start).count();
     gflops = (2.0 * M * N * K) / (time_ms * 1e6);
 }
+
 
 
 void compute_openblas(float* A, float* B, float* C, int M, int N, int K, double& gflops, double& time_ms) {
