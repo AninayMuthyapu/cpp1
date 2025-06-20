@@ -102,19 +102,25 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
                                 }
                             }
 
+                            
                             for (int p = 0; p < BK; p += IT_K) {
                                 for (int kk_inner = 0; kk_inner < IT_K; ++kk_inner) {
                                     int depth_local = p + kk_inner;
-                                    int k_global = k1 + depth_local;
+                                    int global_k = k1 + depth_local;
 
                                     __m256 A_vec[IT_M];
                                     for (int mm = 0; mm < IT_M; ++mm) {
                                         A_vec[mm] = _mm256_broadcast_ss(&local_A[(i + mm) * BK + depth_local]);
                                     }
 
-                                    for (int nn = 0; nn < IT_N / vector_width; ++nn) {
+                                    int local_j_start = (global_k > n1) ? (global_k - n1) : 0;
+                                    int nn_start = (j + vector_width - 1 < local_j_start)? ((local_j_start - j + vector_width - 1) / vector_width): 0;
+
+                                    
+                                    for (int nn = nn_start; nn < IT_N / vector_width; ++nn) {
                                         int col_offset = j + nn * vector_width;
                                         __m256 B_vec = _mm256_loadu_ps(&local_B[depth_local * BN + col_offset]);
+
                                         
                                         for (int mm = 0; mm < IT_M; ++mm) {
                                             C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec, C_tile[mm][nn]);
