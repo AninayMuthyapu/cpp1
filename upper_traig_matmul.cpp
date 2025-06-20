@@ -292,7 +292,7 @@ void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int
 
 int main(int argc, char* argv[]) {
     srand(time(0));
-    openblas_set_num_threads(omp_get_max_threads());
+//    openblas_set_num_threads(omp_get_max_threads());
 
     AnyOption opt;
     opt.setFlag("help", 'h');
