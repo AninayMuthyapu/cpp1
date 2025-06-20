@@ -40,7 +40,6 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
                          double& gflops, double& time_ms, 
                          float** C_cache, float** A_cache, float** B_cache) {
     constexpr int vector_width = 8;
-    
 
     auto start = high_resolution_clock::now();
 
@@ -55,54 +54,50 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
 
             for (int i = 0; i < BM; ++i) {
                 int global_row = m1 + i;
-                int valid_cols =  min(BN, N - n1);
+                int valid_cols = min(BN, N - n1);
                 memcpy(&local_C[i * BN], &C[global_row * N + n1], valid_cols * sizeof(float));
-                
-                
             }
 
             for (int k1 = 0; k1 < K; k1 += BK) {
 
-                
                 if (n1 + BN > k1) {
                     for (int mm = 0; mm < BM; ++mm) {
                         int global_row = m1 + mm;
                         int valid_cols = min(BK, K - k1);
-                        
-                            memcpy(&local_A[mm * BK], &A[global_row * K + k1], valid_cols * sizeof(float));
-                        }
-
-                    for (int kk = 0; kk < BK; ++kk) {
-                        memset(&local_B[kk * BN], 0, BN * sizeof(float));
+                        memcpy(&local_A[mm * BK], &A[global_row * K + k1], valid_cols * sizeof(float));
                     }
+
                     for (int kk = 0; kk < BK; ++kk) {
                         int global_k = k1 + kk;
 
-    
                         int j_start = (global_k > n1) ? (global_k - n1) : 0;
                         int j_end = min(BN, N - n1);
-
                         int copy_size = j_end - j_start;
 
-                        memcpy(&local_B[kk * BN + j_start], &B[global_k * N + n1 + j_start], copy_size * sizeof(float));
-                    }
+                        if (j_start > 0) {
+                            memset(&local_B[kk * BN], 0, j_start * sizeof(float));
+                        }
 
+                        memcpy(&local_B[kk * BN + j_start], &B[global_k * N + n1 + j_start], copy_size * sizeof(float));
+
+                        if (j_end < BN) {
+                            memset(&local_B[kk * BN + j_end], 0, (BN - j_end) * sizeof(float));
+                        }
+                    }
 
                     for (int i = 0; i < BM; i += IT_M) {
                         for (int j = 0; j < BN; j += IT_N) {
 
                             __m256 C_tile[IT_M][IT_N / vector_width];
+                            __m256 B_vec[IT_N / vector_width];
 
                             for (int mm = 0; mm < IT_M; ++mm) {
                                 for (int nn = 0; nn < IT_N / vector_width; ++nn) {
                                     int col_offset = j + nn * vector_width;
-                                    
-                                    C_tile[mm][nn] = _mm256_loadu_ps(&local_C[ (i + mm) * BN + col_offset]);
-                                    
+                                    C_tile[mm][nn] = _mm256_loadu_ps(&local_C[(i + mm) * BN + col_offset]);
                                 }
                             }
 
-                            
                             for (int p = 0; p < BK; p += IT_K) {
                                 for (int kk_inner = 0; kk_inner < IT_K; ++kk_inner) {
                                     int depth_local = p + kk_inner;
@@ -114,15 +109,14 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
                                     }
 
                                     int local_j_start = (global_k > n1) ? (global_k - n1) : 0;
-                                    int nn_start = (j < local_j_start)? ((local_j_start - j) / vector_width): 0;
-                                    
+                                    int nn_start = (j < local_j_start) ? ((local_j_start - j) / vector_width) : 0;
+
                                     for (int nn = nn_start; nn < IT_N / vector_width; ++nn) {
                                         int col_offset = j + nn * vector_width;
-                                        __m256 B_vec = _mm256_loadu_ps(&local_B[depth_local * BN + col_offset]);
+                                        B_vec[nn] = _mm256_loadu_ps(&local_B[depth_local * BN + col_offset]);
 
-                                        
                                         for (int mm = 0; mm < IT_M; ++mm) {
-                                            C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec, C_tile[mm][nn]);
+                                            C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_tile[mm][nn]);
                                         }
                                     }
                                 }
@@ -131,9 +125,7 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
                             for (int mm = 0; mm < IT_M; ++mm) {
                                 for (int nn = 0; nn < IT_N / vector_width; ++nn) {
                                     int col_offset = j + nn * vector_width;
-                                   
                                     _mm256_storeu_ps(&local_C[(i + mm) * BN + col_offset], C_tile[mm][nn]);
-                                    
                                 }
                             }
                         }
@@ -143,11 +135,8 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
 
             for (int i = 0; i < BM; ++i) {
                 int global_row = m1 + i;
-                
-                int valid_cols =  min(BN, N - n1);
-                
-                 memcpy(&C[global_row * N + n1], &local_C[i * BN], valid_cols * sizeof(float));
-                
+                int valid_cols = min(BN, N - n1);
+                memcpy(&C[global_row * N + n1], &local_C[i * BN], valid_cols * sizeof(float));
             }
         }
     }
@@ -156,6 +145,7 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
     time_ms = duration<double, milli>(end - start).count();
     gflops = (2.0 * M * N * K) / (time_ms * 1e6);
 }
+
 
 void compute_openblas(float* A, float* B, float* C, int M, int N, int K, double& gflops, double& time_ms) {
     auto start = high_resolution_clock::now();
@@ -292,7 +282,7 @@ void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int
 
 int main(int argc, char* argv[]) {
     srand(time(0));
-    openblas_set_num_threads(omp_get_max_threads());
+//    openblas_set_num_threads(omp_get_max_threads());
 
     AnyOption opt;
     opt.setFlag("help", 'h');
@@ -684,6 +674,122 @@ int main(int argc, char* argv[]) {
    
 //     return 0;
 // }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
