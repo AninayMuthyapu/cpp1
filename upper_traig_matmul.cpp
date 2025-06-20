@@ -282,7 +282,7 @@ void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int
 
 int main(int argc, char* argv[]) {
     srand(time(0));
-//    openblas_set_num_threads(omp_get_max_threads());
+
 
     AnyOption opt;
     opt.setFlag("help", 'h');
@@ -357,6 +357,36 @@ int main(int argc, char* argv[]) {
     
     return 0;
 }
+
+
+
+
+
+// aninay@aninay-ASUS-TUF-Gaming-A15-FA507NUR-FA507NUR:~/cpp1/cpp1$ g++ -O3 -march=native -std=c++17 -fopenmp -o ut_matmul upper_traig_matmul.cpp AnyOption/AnyOption/anyoption.cpp -lopenblas
+// aninay@aninay-ASUS-TUF-Gaming-A15-FA507NUR-FA507NUR:~/cpp1/cpp1$ ./ut_matmul --m 1024 --n 1024 --k 1024 --itr 10
+// OpenBLAS | Time: 2.546 ms | Avg GFLOP/s: 844.666 | PASS
+// BMxBNxBK = 128x128x128 | IT_MxIT_NxIT_K = 8x8x1 | Time: 9.727 ms | Avg GFLOP/s: 326.536 | PASS
+// BMxBNxBK = 256x256x256 | IT_MxIT_NxIT_K = 8x8x1 | Time: 4.198 ms | Avg GFLOP/s: 511.750 | PASS
+// BMxBNxBK = 64x64x64 | IT_MxIT_NxIT_K = 8x8x1 | Time: 2.658 ms | Avg GFLOP/s: 877.284 | PASS
+// BMxBNxBK = 128x128x128 | IT_MxIT_NxIT_K = 4x16x1 | Time: 5.688 ms | Avg GFLOP/s: 378.734 | PASS
+// BMxBNxBK = 256x256x256 | IT_MxIT_NxIT_K = 4x16x1 | Time: 7.108 ms | Avg GFLOP/s: 307.230 | PASS
+// BMxBNxBK = 64x64x64 | IT_MxIT_NxIT_K = 4x16x1 | Time: 4.200 ms | Avg GFLOP/s: 517.457 | PASS
+// BMxBNxBK = 128x256x256 | IT_MxIT_NxIT_K = 8x8x1 | Time: 4.123 ms | Avg GFLOP/s: 523.672 | PASS
+// BMxBNxBK = 64x256x256 | IT_MxIT_NxIT_K = 4x16x1 | Time: 4.799 ms | Avg GFLOP/s: 447.539 | PASS
+// BMxBNxBK = 128x256x256 | IT_MxIT_NxIT_K = 8x8x1 | Time: 3.986 ms | Avg GFLOP/s: 541.526 | PASS
+// BMxBNxBK = 32x32x32 | IT_MxIT_NxIT_K = 4x16x1 | Time: 4.427 ms | Avg GFLOP/s: 488.957 | PASS
+// BMxBNxBK = 32x64x64 | IT_MxIT_NxIT_K = 8x8x1 | Time: 2.329 ms | Avg GFLOP/s: 931.949 | PASS
+// BMxBNxBK = 32x32x32 | IT_MxIT_NxIT_K = 8x8x1 | Time: 2.644 ms | Avg GFLOP/s: 845.007 | PASS
+// BMxBNxBK = 32x128x128 | IT_MxIT_NxIT_K = 8x8x1 | Time: 2.609 ms | Avg GFLOP/s: 851.117 | PASS
+// BMxBNxBK = 128x32x32 | IT_MxIT_NxIT_K = 8x8x1 | Time: 3.101 ms | Avg GFLOP/s: 693.409 | PASS
+// BMxBNxBK = 256x32x32 | IT_MxIT_NxIT_K = 8x8x1 | Time: 3.487 ms | Avg GFLOP/s: 633.434 | PASS
+// BMxBNxBK = 256x128x128 | IT_MxIT_NxIT_K = 8x8x1 | Time: 3.851 ms | Avg GFLOP/s: 571.214 | PASS
+// BMxBNxBK = 256x256x256 | IT_MxIT_NxIT_K = 8x8x1 | Time: 5.152 ms | Avg GFLOP/s: 451.937 | PASS
+// BMxBNxBK = 256x64x64 | IT_MxIT_NxIT_K = 8x8x1 | Time: 2.914 ms | Avg GFLOP/s: 737.798 | PASS
+// BMxBNxBK = 256x128x128 | IT_MxIT_NxIT_K = 4x16x1 | Time: 6.358 ms | Avg GFLOP/s: 337.900 | PASS
+// BMxBNxBK = 128x64x64 | IT_MxIT_NxIT_K = 4x16x1 | Time: 5.569 ms | Avg GFLOP/s: 386.096 | PASS
+// BMxBNxBK = 128x256x256 | IT_MxIT_NxIT_K = 4x16x1 | Time: 6.036 ms | Avg GFLOP/s: 356.597 | PASS
+// aninay@aninay-ASUS-TUF-Gaming-A15-FA507NUR-FA507NUR:~/cpp1/cpp1$ 
 
 
 
