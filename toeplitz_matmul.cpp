@@ -15,18 +15,19 @@ int main() {
 
 
     vector<vector<float>> A(M, vector<float>(K));
-    for (int i = 0; i < M; ++i)
-        for (int j = 0; j < K; ++j)
+    for (int i = 0; i < M; ++i){
+        for (int j = 0; j < K; ++j){
             A[i][j] = rand() % 10;
-
+        }
+    }
     
     vector<float> first_col(K);
     vector<float> first_row(N);
 
-    for (int i = 0; i < K; ++i)
-        first_col[i] = rand() % 10;
-    for (int j = 0; j < N; ++j)
-        first_row[j] = rand() % 10;
+    for (int i = 0; i < K; ++i){
+        first_col[i] = rand() % 10;}
+    for (int j = 0; j < N; ++j){
+        first_row[j] = rand() % 10;}
 
     first_row[0] = first_col[0]; 
 
@@ -48,7 +49,6 @@ int main() {
     
     return 0;
 }
-
 
 
 
