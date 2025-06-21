@@ -14,7 +14,10 @@ int main() {
     
 
 
-   
+    vector<vector<float>> A(M, vector<float>(K));
+    for (int i = 0; i < M; ++i)
+        for (int j = 0; j < K; ++j)
+            A[i][j] = rand() % 10;
 
     
     vector<float> first_col(K);
