@@ -1,44 +1,110 @@
-#include<iostream>
-#include<vector>
+#include <iostream>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <iomanip>
+
 using namespace std;
 
+int main() {
+    const int M = 6; 
+    const int K = 6; 
+    const int N = 6; 
 
-int main(){
+    srand(time(0));
 
-    vector<float> FirstRow={1,2,3};
-    vector<float> FirstCol={1,4,5,6};
-    int M = FirstCol.size();  // Rows
-    int N = FirstRow.size();  // Columns
-    vector<vector<float>> B(M, vector<float>(N));
+
+    vector<vector<float>> A(M, vector<float>(K));
+    for (int i = 0; i < M; ++i)
+        for (int j = 0; j < K; ++j)
+            A[i][j] = rand() % 10;
 
     
-    for(int i=0;i<M;i++){
-        for(int j=0;j<N;j++){
-            // 0,0 0,1 0,2
-            //1,0, 1,1 1,2
-            //2,0, 2,1 2,2
-            // 3,0, 3,1 3,2
+    vector<float> first_col(K);
+    vector<float> first_row(N);
 
-            if(j>=i){
-                B[i][j]=FirstRow[j-i];
+    for (int i = 0; i < K; ++i)
+        first_col[i] = rand() % 10;
+    for (int j = 0; j < N; ++j)
+        first_row[j] = rand() % 10;
 
-            }else{
-                B[i][j]=FirstCol[i-j];
+    first_row[0] = first_col[0]; 
+
+    
+    vector<vector<float>> C(M, vector<float>(N, 0));
+
+    for (int i = 0; i < M; ++i) {
+        for (int j = 0; j < N; ++j) {
+            float sum = 0;
+            for (int k = 0; k < K; ++k) {
+                float B_kj = (j >= k) ? first_row[j - k] : first_col[k - j];
+                sum += A[i][k] * B_kj;
             }
-
+            C[i][j] = sum;
         }
     }
-    cout<<"Toeplitz Matrix:\n" ;
-    for(int i=0;i<M;i++){
-        for(int j=0;j<N;j++){
-            cout<<B[i][j]<<" ";
-        }
-        cout<<endl;
-    }
-    return 0;
 
     
+    
+    return 0;
 }
 
-//give compile line
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // g++ -std=c++11 toeplitz_matmul.cpp -o toeplitz_matmul
