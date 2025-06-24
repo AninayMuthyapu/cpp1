@@ -359,7 +359,7 @@ int main(int argc, char* argv[]) {
 }
 
 
-
+//
 
 
 // aninay@aninay-ASUS-TUF-Gaming-A15-FA507NUR-FA507NUR:~/cpp1/cpp1$ g++ -O3 -march=native -std=c++17 -fopenmp -o ut_matmul upper_traig_matmul.cpp AnyOption/AnyOption/anyoption.cpp -lopenblas
