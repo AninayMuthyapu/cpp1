@@ -93,23 +93,36 @@ void compute_matrix_multi1_with_row_col_cache(float* A, const vector<float>& fir
                                 
 
                                 __m256 B_vec[IT_N / vector_width];
-                                for (int nn_vec = 0; nn_vec < IT_N / vector_width; ++nn_vec) {
-                                    float B_vals_segment[vector_width];
-                                    for (int v = 0; v < vector_width; ++v) {
-                                        int global_k = k1 + p + kk_inner;
-                                        int global_n = n1 + j + nn_vec * vector_width + v;
-                                        float b_val;
-                                        int diff = global_n - global_k;
-                                        if (diff >= 0 && diff < N) {
-                                            b_val = local_B[diff];
-                                        } else if (diff < 0 && (-diff - 1) < (K - 1)) {
-                                            b_val = local_B[N + (-diff - 1)];
-                                        } 
-                                        B_vals_segment[v] = b_val;
-                                    }
-                                    B_vec[nn_vec] = _mm256_loadu_ps(B_vals_segment);
-                                }
+                                int global_k = k1 + p + kk_inner;
+                                
+                            for (int nn_vec = 0; nn_vec < IT_N / vector_width; ++nn_vec) {
+                                int global_n = n1 + j + nn_vec * vector_width;
 
+                               int diff0 = (global_n + 0) - global_k;
+                               int diff1 = (global_n + 1) - global_k;
+                               int diff2 = (global_n + 2) - global_k;
+                               int diff3 = (global_n + 3) - global_k;
+                               int diff4 = (global_n + 4) - global_k;
+                               int diff5 = (global_n + 5) - global_k;
+                               int diff6 = (global_n + 6) - global_k;
+                               int diff7 = (global_n + 7) - global_k;
+
+
+                               __m256i indices = _mm256_set_epi32(
+                               (diff7 >= 0 && diff7 < N) ? diff7 : (diff7 < 0 && -diff7 - 1 < (K - 1) ? N + (-diff7 - 1) : 0),
+                               (diff6 >= 0 && diff6 < N) ? diff6 : (diff6 < 0 && -diff6 - 1 < (K - 1) ? N + (-diff6 - 1) : 0),
+                               (diff5 >= 0 && diff5 < N) ? diff5 : (diff5 < 0 && -diff5 - 1 < (K - 1) ? N + (-diff5 - 1) : 0),
+                               (diff4 >= 0 && diff4 < N) ? diff4 : (diff4 < 0 && -diff4 - 1 < (K - 1) ? N + (-diff4 - 1) : 0),
+                               (diff3 >= 0 && diff3 < N) ? diff3 : (diff3 < 0 && -diff3 - 1 < (K - 1) ? N + (-diff3 - 1) : 0),
+                               (diff2 >= 0 && diff2 < N) ? diff2 : (diff2 < 0 && -diff2 - 1 < (K - 1) ? N + (-diff2 - 1) : 0),
+                               (diff1 >= 0 && diff1 < N) ? diff1 : (diff1 < 0 && -diff1 - 1 < (K - 1) ? N + (-diff1 - 1) : 0),
+                               (diff0 >= 0 && diff0 < N) ? diff0 : (diff0 < 0 && -diff0 - 1 < (K - 1) ? N + (-diff0 - 1) : 0)
+                           );
+
+ 
+                            B_vec[nn_vec] = _mm256_i32gather_ps(local_B, indices, sizeof(float));
+
+                        }
                                 for (int mm = 0; mm < IT_M; ++mm) {
                                     
                                     float a_val_broadcast = local_A[(i + mm) * BK + p + kk_inner];
