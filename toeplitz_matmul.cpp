@@ -96,32 +96,28 @@ void compute_matrix_multi1_with_row_col_cache(float* A, const vector<float>& fir
                                 int global_k = k1 + p + kk_inner;
                                 
                             for (int nn_vec = 0; nn_vec < IT_N / vector_width; ++nn_vec) {
-                                int global_n = n1 + j + nn_vec * vector_width;
+                               int global_n = n1 + j + nn_vec * vector_width;
+                               int idx_base = global_n - global_k;
 
-                               int diff0 = (global_n + 0) - global_k;
-                               int diff1 = (global_n + 1) - global_k;
-                               int diff2 = (global_n + 2) - global_k;
-                               int diff3 = (global_n + 3) - global_k;
-                               int diff4 = (global_n + 4) - global_k;
-                               int diff5 = (global_n + 5) - global_k;
-                               int diff6 = (global_n + 6) - global_k;
-                               int diff7 = (global_n + 7) - global_k;
+                                int indices[8] = {
+                                    idx_base + 0,
+                                    idx_base + 1,
+                                    idx_base + 2,
+                                    idx_base + 3,
+                                    idx_base + 4,
+                                    idx_base + 5,
+                                    idx_base + 6,
+                                    idx_base + 7
+                                };
+                                for (int i = 0; i < 8; ++i){
+                                    indices[i] = (indices[i] >= 0) ? indices[i] : N - indices[i] - 1;
+                                }
+                                __m256i vec_indices = _mm256_set_epi32(indices[7], indices[6], indices[5], indices[4],
+                                                                       indices[3], indices[2], indices[1], indices[0]);
 
-
-                               __m256i indices = _mm256_set_epi32(
-                               (diff7 >= 0 && diff7 < N) ? diff7 : (diff7 < 0 && -diff7 - 1 < (K - 1) ? N + (-diff7 - 1) : 0),
-                               (diff6 >= 0 && diff6 < N) ? diff6 : (diff6 < 0 && -diff6 - 1 < (K - 1) ? N + (-diff6 - 1) : 0),
-                               (diff5 >= 0 && diff5 < N) ? diff5 : (diff5 < 0 && -diff5 - 1 < (K - 1) ? N + (-diff5 - 1) : 0),
-                               (diff4 >= 0 && diff4 < N) ? diff4 : (diff4 < 0 && -diff4 - 1 < (K - 1) ? N + (-diff4 - 1) : 0),
-                               (diff3 >= 0 && diff3 < N) ? diff3 : (diff3 < 0 && -diff3 - 1 < (K - 1) ? N + (-diff3 - 1) : 0),
-                               (diff2 >= 0 && diff2 < N) ? diff2 : (diff2 < 0 && -diff2 - 1 < (K - 1) ? N + (-diff2 - 1) : 0),
-                               (diff1 >= 0 && diff1 < N) ? diff1 : (diff1 < 0 && -diff1 - 1 < (K - 1) ? N + (-diff1 - 1) : 0),
-                               (diff0 >= 0 && diff0 < N) ? diff0 : (diff0 < 0 && -diff0 - 1 < (K - 1) ? N + (-diff0 - 1) : 0)
-                           );
+                                B_vec[nn_vec] = _mm256_i32gather_ps(local_B, vec_indices, sizeof(float));
 
  
-                            B_vec[nn_vec] = _mm256_i32gather_ps(local_B, indices, sizeof(float));
-
                         }
                                 for (int mm = 0; mm < IT_M; ++mm) {
                                     
