@@ -83,11 +83,15 @@ void compute_matrix_multi1(float* A, float* B_matrix, float* C,
 
                 
                 int b_idx = 0;
+                //Load tile column
                 for (int i = BK - 1; i >= 1; --i) {
-                    local_B[b_idx++] = first_col_vec[k1 + i];
+                    local_B[b_idx] = B_matrix[(k1 + i)*N + n1];
+                    b_idx++;
                 }
+                //load tile row
                 for (int j = 0; j < BN; ++j) {
-                    local_B[b_idx++] = first_row_vec[n1 + j];
+                    local_B[b_idx] = B_matrix[k1*N + n1 + j];
+                    b_idx++;
                 }
 
                 for (int i_tile = 0; i_tile < BM; i_tile += IT_M) {
@@ -103,20 +107,19 @@ void compute_matrix_multi1(float* A, float* B_matrix, float* C,
 
                         for (int p_tile = 0; p_tile < BK; p_tile += IT_K) {
                             for (int kk_inner = 0; kk_inner < IT_K; ++kk_inner) {
-                                int global_k = k1 + p_tile + kk_inner;
                                 __m256 B_vec[IT_N / vector_width];
 
                                 for (int nn_vec = 0; nn_vec < IT_N / vector_width; ++nn_vec) {
-                                    int global_j_start = n1 + j_tile + nn_vec * vector_width;
-                                    int base_diff = global_k - global_j_start;
-                                    int load_start_idx = (BK - 1 - base_diff);
+                                    int global_j_start = j_tile + nn_vec * vector_width;
+                                    int global_k = p_tile + kk_inner;
+                                    int base_diff = global_j_start - global_k;
+                                    int load_start_idx = BK - 1 + base_diff;
                                     const __m256i reverse = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
 
-
+                                    
                                     __m256 b_vec_loaded = _mm256_loadu_ps(&local_B[load_start_idx]);
                                     B_vec[nn_vec] = _mm256_permutevar8x32_ps(b_vec_loaded, reverse);
                                 }
-
                                 for (int mm = 0; mm < IT_M; ++mm) {
                                     float a_val = local_A[(i_tile + mm) * BK + p_tile + kk_inner];
                                     __m256 a_vec = _mm256_broadcast_ss(&a_val);
@@ -288,15 +291,15 @@ int main(int argc, char* argv[]) {
     vector<float> C_ref(M * N, 0.0f);
     vector<float> C_test(M * N, 0.0f);
     for (auto& x : A) {
-        x = static_cast<float>(rand() % 10 + 1);
+        x = static_cast<float>(rand() % 5 + 1);
     }
     vector<float> first_row(N);
     vector<float> first_col(K);
     for (int i = 0; i < N; ++i) {
-        first_row[i] = static_cast<float>(rand() % 10 + 1);
+        first_row[i] = static_cast<float>(rand() % 5 + 1);
     }
     for (int i = 0; i < K; ++i) {
-        first_col[i] = static_cast<float>(rand() % 10 + 1);
+        first_col[i] = static_cast<float>(rand() % 5 + 1);
     }
     first_col[0] = first_row[0];
     vector<float> B_matrix(K * N);
@@ -309,6 +312,22 @@ int main(int argc, char* argv[]) {
             }
         }
     }
+
+    // for (int k_idx = 0; k_idx < M; ++k_idx) {
+    //     for (int n_idx = 0; n_idx < K; ++n_idx) {
+    //         printf("%.f ", A[k_idx* K + n_idx]);
+    //     }
+    //     printf("\n");
+    // }
+
+    // printf("\n");
+    // for (int k_idx = 0; k_idx < K; ++k_idx) {
+    //     for (int n_idx = 0; n_idx < N; ++n_idx) {
+    //         printf("%.f ", B_matrix[k_idx* N + n_idx]);
+    //     }
+    //     printf("\n");
+    // }
+
     if (check_results) {
         compute_reference(A.data(), B_matrix.data(), C_ref.data(), M, N, K);
     }
