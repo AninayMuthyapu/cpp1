@@ -49,14 +49,7 @@ void compute_matrix_multi1(float* A, float* B_matrix, float* C,
     constexpr int vector_width = 8;
     auto start = high_resolution_clock::now();
 
-    vector<float> first_row_vec(N);
-    vector<float> first_col_vec(K);
-
-    for (int j = 0; j < N; ++j)
-        first_row_vec[j] = B_matrix[j];
-    for (int i = 0; i < K; ++i)
-        first_col_vec[i] = B_matrix[i * N];
-
+   
     
     #pragma omp parallel for collapse(2) schedule(static)
     for (int m1 = 0; m1 < M; m1 += BM) {
@@ -80,16 +73,33 @@ void compute_matrix_multi1(float* A, float* B_matrix, float* C,
                     memcpy(&local_A[i * BK], &A[global_m_idx * K + k1], min(BK, K - k1) * sizeof(float));
                     
                 }
-
-                
                 int b_idx = 0;
-                for (int i = BK - 1; i >= 1; --i) {
-                    local_B[b_idx++] = first_col_vec[k1 + i];
-                }
-                for (int j = 0; j < BN; ++j) {
-                    local_B[b_idx++] = first_row_vec[n1 + j];
-                }
 
+
+                for (int i = BK - 1; i >= 1; --i) {
+                    int global_k = k1 + i;
+                    int global_n = n1;
+                    int diff = global_n - global_k;
+
+                    int row_idx = max(0, diff); 
+                    int col_idx = max(0, -diff) * N;  
+    
+                    local_B[b_idx] = B_matrix[row_idx + col_idx];
+                     b_idx++;
+              }
+
+
+                for (int j = 0; j < BN; ++j) {
+                    int global_k = k1;
+                    int global_n = n1 + j;
+                    int diff = global_n - global_k;
+
+                    int row_idx = max(0, diff);
+                    int col_idx = max(0, -diff) * N;
+
+                    local_B[b_idx] = B_matrix[row_idx + col_idx];
+                    b_idx++;
+                }
                 for (int i_tile = 0; i_tile < BM; i_tile += IT_M) {
                     for (int j_tile = 0; j_tile < BN; j_tile += IT_N) {
                         __m256 C_tile[IT_M][IT_N / vector_width];
@@ -103,25 +113,29 @@ void compute_matrix_multi1(float* A, float* B_matrix, float* C,
 
                         for (int p_tile = 0; p_tile < BK; p_tile += IT_K) {
                             for (int kk_inner = 0; kk_inner < IT_K; ++kk_inner) {
-                                int global_k = k1 + p_tile + kk_inner;
                                 __m256 B_vec[IT_N / vector_width];
+                                __m256 a_vec[IT_M];
 
                                 for (int nn_vec = 0; nn_vec < IT_N / vector_width; ++nn_vec) {
-                                    int global_j_start = n1 + j_tile + nn_vec * vector_width;
-                                    int base_diff = global_k - global_j_start;
-                                    int load_start_idx = (BK - 1 - base_diff);
+                                    int global_j_start = j_tile + nn_vec * vector_width;
+                                    int global_k = p_tile + kk_inner;
+                                    int base_diff = global_j_start - global_k;
+                                    int load_start_idx = BK - 1 + base_diff;
                                     const __m256i reverse = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
 
-
+                                    
                                     __m256 b_vec_loaded = _mm256_loadu_ps(&local_B[load_start_idx]);
                                     B_vec[nn_vec] = _mm256_permutevar8x32_ps(b_vec_loaded, reverse);
                                 }
+                                 
+                                for (int mm = 0; mm < IT_M; ++mm) {
+                                    a_vec[mm] = _mm256_broadcast_ss(&local_A[(i_tile + mm) * BK + p_tile + kk_inner]);
+                                }
 
                                 for (int mm = 0; mm < IT_M; ++mm) {
-                                    float a_val = local_A[(i_tile + mm) * BK + p_tile + kk_inner];
-                                    __m256 a_vec = _mm256_broadcast_ss(&a_val);
+                                    
                                     for (int nn_vec = 0; nn_vec < IT_N / vector_width; ++nn_vec) {
-                                        C_tile[mm][nn_vec] = _mm256_fmadd_ps(a_vec, B_vec[nn_vec], C_tile[mm][nn_vec]);
+                                        C_tile[mm][nn_vec] = _mm256_fmadd_ps(a_vec[mm], B_vec[nn_vec], C_tile[mm][nn_vec]);
                                     }
                                 }
                             }
@@ -288,15 +302,15 @@ int main(int argc, char* argv[]) {
     vector<float> C_ref(M * N, 0.0f);
     vector<float> C_test(M * N, 0.0f);
     for (auto& x : A) {
-        x = static_cast<float>(rand() % 10 + 1);
+        x = static_cast<float>(rand() % 5 + 1);
     }
     vector<float> first_row(N);
     vector<float> first_col(K);
     for (int i = 0; i < N; ++i) {
-        first_row[i] = static_cast<float>(rand() % 10 + 1);
+        first_row[i] = static_cast<float>(rand() % 5 + 1);
     }
     for (int i = 0; i < K; ++i) {
-        first_col[i] = static_cast<float>(rand() % 10 + 1);
+        first_col[i] = static_cast<float>(rand() % 5 + 1);
     }
     first_col[0] = first_row[0];
     vector<float> B_matrix(K * N);
@@ -309,6 +323,22 @@ int main(int argc, char* argv[]) {
             }
         }
     }
+
+    // for (int k_idx = 0; k_idx < M; ++k_idx) {
+    //     for (int n_idx = 0; n_idx < K; ++n_idx) {
+    //         printf("%.f ", A[k_idx* K + n_idx]);
+    //     }
+    //     printf("\n");
+    // }
+
+    // printf("\n");
+    // for (int k_idx = 0; k_idx < K; ++k_idx) {
+    //     for (int n_idx = 0; n_idx < N; ++n_idx) {
+    //         printf("%.f ", B_matrix[k_idx* N + n_idx]);
+    //     }
+    //     printf("\n");
+    // }
+
     if (check_results) {
         compute_reference(A.data(), B_matrix.data(), C_ref.data(), M, N, K);
     }
@@ -321,5 +351,23 @@ int main(int argc, char* argv[]) {
     testBlockSize<64, 64, 64, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<128, 128, 128, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<256, 256, 256, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<64, 64, 64, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 256, 256, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<64, 256, 256, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 256, 256, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<32, 32, 32, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<32, 64, 64, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<32, 32, 32, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<32, 128, 128, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 32, 32, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<256, 32, 32, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+
+    testBlockSize<256, 128, 128, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<256, 256, 256, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<256, 64, 64, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<256, 128, 128, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 64, 64, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 256, 256, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    
     return 0;
 }
