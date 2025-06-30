@@ -75,7 +75,7 @@ void compute_matrix_multi1(float* A, float* B_matrix, float* C,
                 }
                 int b_idx = 0;
 
-
+                //TODO: These two loops should be optimzied when B_matrix is stored as first row and first column
                 for (int i = BK - 1; i >= 1; --i) {
                     int global_k = k1 + i;
                     int global_n = n1;
