@@ -1,4 +1,4 @@
-#include <iostream>
+#include <cstddef>  
 #include <vector>
 #include <random>
 #include <chrono>
@@ -15,13 +15,14 @@
 using namespace std;
 using namespace std::chrono;
 
-void compute_reference(float* A, float* B, float* C, int M, int N, int K) {
+
+void compute_reference(float* A, float* B_full_matrix, float* C, int M, int N, int K) {
     memset(C, 0, M * N * sizeof(float));
     for (int i = 0; i < M; ++i) {
         for (int j = 0; j < N; ++j) {
             float sum = 0.0f;
             for (int k = 0; k < K; ++k) {
-                sum += A[i * K + k] * B[k * N + j];
+                sum += A[i * K + k] * B_full_matrix[k * N + j];
             }
             C[i * N + j] = sum;
         }
@@ -38,6 +39,7 @@ bool verify_result(float* C_test, float* C_ref, int M, int N, float tolerance = 
     return true;
 }
 
+
 template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K,
          bool MIsMultipleOfBM, bool NIsMultipleOfBN, bool KIsMultipleOfBK>
 void compute_matrix_multi1(float* A, float* B, float* C,
@@ -45,32 +47,43 @@ void compute_matrix_multi1(float* A, float* B, float* C,
                           float** C_cache, float** A_cache, float** B_cache) {
 
     constexpr int vector_width = 8;
+   
     auto start = high_resolution_clock::now();
 
-    
     #pragma omp parallel for collapse(2) schedule(static)
     for (int m1 = 0; m1 < M; m1 += BM) {
         for (int n1 = 0; n1 < N; n1 += BN) {
             int thread_id = omp_get_thread_num();
+            if (thread_id != 0) continue;  
+
             float* local_C = C_cache[thread_id];
             float* local_A = A_cache[thread_id];
             float* local_B = B_cache[thread_id];
+
+           
 
             for (int i = 0; i < BM; ++i) {
                 memcpy(&local_C[i * BN], &C[(m1 + i) * N + n1], BN * sizeof(float));
             }
 
             for (int k1 = 0; k1 < K; k1 += BK) {
+               
+
                 for (int i = 0; i < BM; ++i) {
                     memcpy(&local_A[i * BK], &A[(m1 + i) * K + k1], BK * sizeof(float));
                 }
 
+                memset(local_B, 0, BK * BN * sizeof(float));
                 for (int kk = 0; kk < BK; ++kk) {
-                    memcpy(&local_B[kk * BN], &B[(k1 + kk) * N + n1], BN * sizeof(float));
+                    for (int jj = kk; jj < BN; ++jj) {
+                        local_B[kk * BN + jj] = B[(k1 + kk) * N + (n1 + jj)];
+                    }
                 }
 
                 for (int i = 0; i < BM; i += IT_M) {
                     for (int j = 0; j < BN; j += IT_N) {
+                       
+
                         __m256 C_tile[IT_M][IT_N / vector_width];
 
                         for (int mm = 0; mm < IT_M; ++mm) {
@@ -81,30 +94,47 @@ void compute_matrix_multi1(float* A, float* B, float* C,
 
                         for (int p = 0; p < BK; p += IT_K) {
                             for (int kk_inner = 0; kk_inner < IT_K; ++kk_inner) {
-                                int k_idx = p + kk_inner;
-                                __m256 a_vec[IT_M];
+                                int block_k_idx = p + kk_inner;
+
+                                __m256 A_vec[IT_M];
                                 for (int mm = 0; mm < IT_M; ++mm) {
-                                    a_vec[mm] = _mm256_broadcast_ss(&local_A[(i + mm) * BK + k_idx]);
+                                    float a_val = local_A[(i + mm) * BK + block_k_idx];
+                                    
+                                    A_vec[mm] = _mm256_broadcast_ss(&a_val);
                                 }
+
                                 __m256 B_vec[IT_N / vector_width];
                                 for (int nn_vec = 0; nn_vec < IT_N / vector_width; ++nn_vec) {
-                                    B_vec[nn_vec] = _mm256_loadu_ps(&local_B[k_idx * BN + j + nn_vec * vector_width]);
+                                    float b_vals[vector_width];
+                                    for (int x = 0; x < vector_width; ++x) {
+                                        int local_j_idx = j + nn_vec * vector_width + x;
+
+                                        int row_access = std::min(block_k_idx, local_j_idx);
+                                        int col_access = std::max(block_k_idx, local_j_idx);
+
+                                        b_vals[x] = local_B[row_access * BN + col_access];
+                                        
+                                    }
+                                    B_vec[nn_vec] = _mm256_loadu_ps(b_vals);
                                 }
+
                                 for (int mm = 0; mm < IT_M; ++mm) {
-                                    for (int nn_vec = 0; nn_vec < IT_N / vector_width; ++nn_vec) {
-                                        C_tile[mm][nn_vec] = _mm256_fmadd_ps(a_vec[mm], B_vec[nn_vec], C_tile[mm][nn_vec]);
+                                    for (int nn = 0; nn < IT_N / vector_width; ++nn) {
+                                        C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_tile[mm][nn]);
                                     }
                                 }
                             }
                         }
+
                         for (int mm = 0; mm < IT_M; ++mm) {
-                            for (int nn_vec = 0; nn_vec < IT_N / vector_width; ++nn_vec) {
-                                _mm256_storeu_ps(&local_C[(i + mm) * BN + j + nn_vec * vector_width], C_tile[mm][nn_vec]);
+                            for (int nn = 0; nn < IT_N / vector_width; ++nn) {
+                                _mm256_storeu_ps(&local_C[(i + mm) * BN + j + nn * vector_width], C_tile[mm][nn]);
                             }
                         }
                     }
                 }
             }
+
             for (int i = 0; i < BM; ++i) {
                 memcpy(&C[(m1 + i) * N + n1], &local_C[i * BN], BN * sizeof(float));
             }
