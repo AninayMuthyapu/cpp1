@@ -15,7 +15,6 @@
 using namespace std;
 using namespace std::chrono;
 
-
 void compute_reference(float* A, float* B_full_matrix, float* C, int M, int N, int K) {
     memset(C, 0, M * N * sizeof(float));
     for (int i = 0; i < M; ++i) {
@@ -39,7 +38,6 @@ bool verify_result(float* C_test, float* C_ref, int M, int N, float tolerance = 
     return true;
 }
 
-
 template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K,
          bool MIsMultipleOfBM, bool NIsMultipleOfBN, bool KIsMultipleOfBK>
 void compute_matrix_multi1(float* A, float* B, float* C,
@@ -47,43 +45,42 @@ void compute_matrix_multi1(float* A, float* B, float* C,
                           float** C_cache, float** A_cache, float** B_cache) {
 
     constexpr int vector_width = 8;
-   
     auto start = high_resolution_clock::now();
 
     #pragma omp parallel for collapse(2) schedule(static)
     for (int m1 = 0; m1 < M; m1 += BM) {
         for (int n1 = 0; n1 < N; n1 += BN) {
-            int thread_id = omp_get_thread_num();
-            if (thread_id != 0) continue;  
 
+            int thread_id = omp_get_thread_num();
             float* local_C = C_cache[thread_id];
             float* local_A = A_cache[thread_id];
             float* local_B = B_cache[thread_id];
-
-           
 
             for (int i = 0; i < BM; ++i) {
                 memcpy(&local_C[i * BN], &C[(m1 + i) * N + n1], BN * sizeof(float));
             }
 
             for (int k1 = 0; k1 < K; k1 += BK) {
-               
-
                 for (int i = 0; i < BM; ++i) {
                     memcpy(&local_A[i * BK], &A[(m1 + i) * K + k1], BK * sizeof(float));
                 }
 
-                memset(local_B, 0, BK * BN * sizeof(float));
-                for (int kk = 0; kk < BK; ++kk) {
-                    for (int jj = kk; jj < BN; ++jj) {
-                        local_B[kk * BN + jj] = B[(k1 + kk) * N + (n1 + jj)];
+                
+
+                if (k1 >= n1) {
+                    for (int kk = 0; kk < BK; ++kk) {
+                        memcpy(&local_B[kk * BN], &B[(k1 + kk) * N + n1], BN * sizeof(float));
                     }
-                }
+                } else if (k1 + BK <= n1) {
+                    for (int jj = 0; jj < BN; ++jj) {
+                        for (int kk = 0; kk < BK; ++kk) {
+                            local_B[kk * BN + jj] = B[(n1 + jj) * N + (k1 + kk)];
+                        }
+                    }
+                } 
 
                 for (int i = 0; i < BM; i += IT_M) {
                     for (int j = 0; j < BN; j += IT_N) {
-                       
-
                         __m256 C_tile[IT_M][IT_N / vector_width];
 
                         for (int mm = 0; mm < IT_M; ++mm) {
@@ -92,36 +89,17 @@ void compute_matrix_multi1(float* A, float* B, float* C,
                             }
                         }
 
-                        for (int p = 0; p < BK; p += IT_K) {
-                            for (int kk_inner = 0; kk_inner < IT_K; ++kk_inner) {
-                                int block_k_idx = p + kk_inner;
-
-                                __m256 A_vec[IT_M];
-                                for (int mm = 0; mm < IT_M; ++mm) {
-                                    float a_val = local_A[(i + mm) * BK + block_k_idx];
-                                    
-                                    A_vec[mm] = _mm256_broadcast_ss(&a_val);
-                                }
-
-                                __m256 B_vec[IT_N / vector_width];
-                                for (int nn_vec = 0; nn_vec < IT_N / vector_width; ++nn_vec) {
-                                    float b_vals[vector_width];
-                                    for (int x = 0; x < vector_width; ++x) {
-                                        int local_j_idx = j + nn_vec * vector_width + x;
-
-                                        int row_access = std::min(block_k_idx, local_j_idx);
-                                        int col_access = std::max(block_k_idx, local_j_idx);
-
-                                        b_vals[x] = local_B[row_access * BN + col_access];
-                                        
-                                    }
-                                    B_vec[nn_vec] = _mm256_loadu_ps(b_vals);
-                                }
+                        for (int p = 0; p < BK; ++p) {
+                            __m256 A_vec[IT_M];
+                            for (int mm = 0; mm < IT_M; ++mm) {
+                                A_vec[mm] = _mm256_set1_ps(local_A[(i + mm) * BK + p]);
+                            }
+                            __m256 B_vec[IT_N / vector_width];
+                            for (int nn = 0; nn < IT_N / vector_width; ++nn) {
+                                B_vec[nn] = _mm256_loadu_ps(&local_B[p * BN + j + nn * vector_width]);
 
                                 for (int mm = 0; mm < IT_M; ++mm) {
-                                    for (int nn = 0; nn < IT_N / vector_width; ++nn) {
-                                        C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_tile[mm][nn]);
-                                    }
+                                    C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_tile[mm][nn]);
                                 }
                             }
                         }
@@ -145,7 +123,6 @@ void compute_matrix_multi1(float* A, float* B, float* C,
     time_ms = duration<double, std::milli>(end - start).count();
     gflops = (2.0 * M * N * K) / (time_ms * 1e6);
 }
-
 void compute_openblas(float* A, float* B, float* C, int M, int N, int K, double& gflops, double& time_ms) {
     auto start = high_resolution_clock::now();
 
@@ -333,6 +310,23 @@ int main(int argc, char* argv[]) {
     testBlockSize<64, 64, 64, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<128, 128, 128, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<256, 256, 256, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<64, 64, 64, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 256, 256, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<64, 256, 256, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 256, 256, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<32, 32, 32, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<32, 64, 64, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<32, 32, 32, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<32, 128, 128, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 32, 32, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<256, 32, 32, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
 
+    testBlockSize<256, 128, 128, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<256, 256, 256, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<256, 64, 64, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<256, 128, 128, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 64, 64, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 256, 256, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+  
     return 0;
 }
