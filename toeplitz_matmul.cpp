@@ -61,19 +61,21 @@ void compute_matrix_multi1_with_row_col_cache(float* A, const vector<float>& fir
             float* local_A = A_cache[thread_id];
             float* local_B = B_cache[thread_id];
 
-            
+            // Cache the Toeplitz vectors for this thread
+            // Store first_row and first_col in a way that makes access easier
+            // We'll store them together: first_row followed by first_col[1:] (excluding first_col[0])
             memcpy(local_B, first_row.data(), N * sizeof(float));
             if (K > 1) {
                 memcpy(&local_B[N], &first_col[1], (K - 1) * sizeof(float));
             }
 
+            // Initialize local C block
             for (int i = 0; i < BM; ++i) {
                 memcpy(&local_C[i * BN], &C[(m1 + i) * N + n1], BN * sizeof(float));
             }
 
             for (int k1 = 0; k1 < K; k1 += BK) {
-                
-
+                // Cache A block
                 for (int i = 0; i < BM; ++i) {
                     memcpy(&local_A[i * BK], &A[(m1 + i) * K + k1], BK * sizeof(float));
                 }
@@ -82,6 +84,7 @@ void compute_matrix_multi1_with_row_col_cache(float* A, const vector<float>& fir
                     for (int j = 0; j < BN; j += IT_N) {
                         __m256 C_tile[IT_M][IT_N / vector_width];
 
+                        // Load C tile into registers
                         for (int mm = 0; mm < IT_M; ++mm) {
                             for (int nn = 0; nn < IT_N / vector_width; ++nn) {
                                 C_tile[mm][nn] = _mm256_loadu_ps(&local_C[(i + mm) * BN + j + nn * vector_width]);
@@ -90,57 +93,45 @@ void compute_matrix_multi1_with_row_col_cache(float* A, const vector<float>& fir
 
                         for (int p = 0; p < BK; p += IT_K) {
                             for (int kk_inner = 0; kk_inner < IT_K; ++kk_inner) {
-                                
-
-                                __m256 B_vec[IT_N / vector_width];
                                 int global_k = k1 + p + kk_inner;
                                 
-                            for (int nn_vec = 0; nn_vec < IT_N / vector_width; ++nn_vec) {
-                               int global_n = n1 + j + nn_vec * vector_width;
-                               int idx_base = global_n - global_k;
-
-                                int indices[8] = {
-                                    idx_base + 0,
-                                    idx_base + 1,
-                                    idx_base + 2,
-                                    idx_base + 3,
-                                    idx_base + 4,
-                                    idx_base + 5,
-                                    idx_base + 6,
-                                    idx_base + 7
-                                };
-                                for (int i = 0; i < 8; ++i){
-                                    indices[i] = (indices[i] >= 0) ? indices[i] : N - indices[i] - 1;
-                                }
-                                __m256i vec_indices = _mm256_set_epi32(indices[7], indices[6], indices[5], indices[4],
-                                                                       indices[3], indices[2], indices[1], indices[0]);
-
-                                B_vec[nn_vec] = _mm256_i32gather_ps(local_B, vec_indices, sizeof(float));
-
- 
-                        }
-                                for (int mm = 0; mm < IT_M; ++mm) {
+                                // Compute B values for this k and the current j block
+                                __m256 B_vec[IT_N / vector_width];
+                                
+                                for (int nn_vec = 0; nn_vec < IT_N / vector_width; ++nn_vec) {
+                                    float b_vals[8];
                                     
-                                    float a_val_broadcast = local_A[(i + mm) * BK + p + kk_inner];
-                                    __m256 a_vec = _mm256_broadcast_ss(&a_val_broadcast);
+                                   int offset = BK + (global_k - (n1 + j + nn_vec * vector_width));
+__m256 b_vals = _mm256_loadu_ps(&local_B[offset]);
+// Optionally reverse the vector using shuffle if required
+const __m256i reverse_indices = _mm256_setr_epi32(7,6,5,4,3,2,1,0);
+B_vec[nn_vec] = _mm256_permutevar8x32_ps(b_vals, reverse_indices);
+
+                                }
+
+                                // Perform the matrix multiplication for this k
+                                for (int mm = 0; mm < IT_M; ++mm) {
+                                    float a_val = local_A[(i + mm) * BK + p + kk_inner];
+                                    __m256 a_vec = _mm256_broadcast_ss(&a_val);
 
                                     for (int nn_vec = 0; nn_vec < IT_N / vector_width; ++nn_vec) {
-                                        
                                         C_tile[mm][nn_vec] = _mm256_fmadd_ps(a_vec, B_vec[nn_vec], C_tile[mm][nn_vec]);
                                     }
                                 }
                             }
                         }
+                        
+                        // Store C tile back to local memory
                         for (int mm = 0; mm < IT_M; ++mm) {
-                            
                             for (int nn_vec = 0; nn_vec < IT_N / vector_width; ++nn_vec) {
-                               
                                 _mm256_storeu_ps(&local_C[(i + mm) * BN + j + nn_vec * vector_width], C_tile[mm][nn_vec]);
                             }
                         }
                     }
                 }
             }
+            
+            // Copy local C back to global memory
             for (int i = 0; i < BM; ++i) {
                 memcpy(&C[(m1 + i) * N + n1], &local_C[i * BN], BN * sizeof(float));
             }
@@ -151,7 +142,6 @@ void compute_matrix_multi1_with_row_col_cache(float* A, const vector<float>& fir
     time_ms = duration<double, std::milli>(end - start).count();
     gflops = (2.0 * M * N * K) / (time_ms * 1e6);
 }
-
 
 void compute_openblas(float* A, float* B, float* C, int M, int N, int K, double& gflops, double& time_ms) {
     auto start = high_resolution_clock::now();
@@ -175,7 +165,6 @@ void compute_openblas(float* A, float* B, float* C, int M, int N, int K, double&
     time_ms = duration<double, milli>(end - start).count();
     gflops = (2.0 * M * N * K) / (time_ms * 1e6);
 }
-
 
 void testOpenBLAS(float* A, float* B, float* C_test, float* C_ref, int M, int N, int K, int iterations, float results[][8], int& idx, bool check_results) {
     double gflops, time_ms;
@@ -225,15 +214,16 @@ void testBlockSize(float* A, const vector<float>& first_row, const vector<float>
     float** A_cache = new float*[max_threads];
     float** B_cache = new float*[max_threads];
 
-    
-     for (int t = 0; t < max_threads; ++t) {
+    for (int t = 0; t < max_threads; ++t) {
         C_cache[t] = (float*)aligned_alloc(page_size, ((BM * BN * sizeof(float) + page_size - 1) / page_size) * page_size);
         A_cache[t] = (float*)aligned_alloc(page_size, ((BM * BK * sizeof(float) + page_size - 1) / page_size) * page_size);
-        B_cache[t] = (float*)aligned_alloc(page_size, ((BK * BN * sizeof(float) + page_size - 1) / page_size) * page_size);
+        // B_cache stores first_row + first_col[1:], so size is N + K - 1
+        B_cache[t] = (float*)aligned_alloc(page_size, (((N + K - 1) * sizeof(float) + page_size - 1) / page_size) * page_size);
     }
 
     double gflops, time_ms;
 
+    // Create full B matrix for comparison
     vector<float> B_matrix(K * N);
     for (int k_idx = 0; k_idx < K; ++k_idx) {
         for (int n_idx = 0; n_idx < N; ++n_idx) {
@@ -310,7 +300,8 @@ int main(int argc, char* argv[]) {
     opt.setOption("k");
     opt.setOption("itr");
     opt.processCommandArgs(argc, argv);
-    int M,N,K,itr;
+    
+    int M = 1024, N = 1024, K = 1024, itr = 10; // Default values
     
     if (opt.getValue("m") != NULL) M = atoi(opt.getValue("m"));
     if (opt.getValue("n") != NULL) N = atoi(opt.getValue("n"));
@@ -356,7 +347,6 @@ int main(int argc, char* argv[]) {
     float results[100][8];
     int idx = 0;
 
-   
     testOpenBLAS(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     cout << endl;
 
