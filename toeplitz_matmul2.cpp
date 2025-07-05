@@ -203,18 +203,12 @@ void testBlockSize(float* A, float* B_matrix, float* C_test, float* C_ref, int M
         C_cache[t] = (float*)aligned_alloc(page_size, ((BM * BN * sizeof(float) + page_size - 1) / page_size) * page_size);
         A_cache[t] = (float*)aligned_alloc(page_size, ((BM * BK * sizeof(float) + page_size - 1) / page_size) * page_size);
         B_cache[t] = (float*)aligned_alloc(page_size, (((BK + BN - 1) * sizeof(float) + page_size - 1) / page_size) * page_size);
-        if (!C_cache[t] || !A_cache[t] || !B_cache[t]) {
-            cerr << "Memory allocation failed for thread " << t << endl;
-            for (int cleanup_t = 0; cleanup_t <= t; ++cleanup_t) {
-                free(C_cache[cleanup_t]);
-                free(A_cache[cleanup_t]);
-                free(B_cache[cleanup_t]);
-            }
+        
             delete[] C_cache;
             delete[] A_cache;
             delete[] B_cache;
             delete[] B_new;
-            exit(EXIT_FAILURE);
+            
         }
     }
 
