@@ -205,7 +205,7 @@ void testBlockSize(float* A, float* B_matrix, float* C_test, float* C_ref, int M
     int max_threads = omp_get_max_threads();
     long page_size = sysconf(_SC_PAGESIZE);
     
-    // Allocate caches once, before the loops for computation
+    
     float** C_cache = new float*[max_threads];
     float** A_cache = new float*[max_threads];
     float** B_cache = new float*[max_threads];
@@ -217,7 +217,7 @@ void testBlockSize(float* A, float* B_matrix, float* C_test, float* C_ref, int M
         C_cache[t] = (float*)aligned_alloc(page_size, ((BM * BN * sizeof(float) + page_size - 1) / page_size) * page_size);
         A_cache[t] = (float*)aligned_alloc(page_size, ((BM * BK * sizeof(float) + page_size - 1) / page_size) * page_size);
         B_cache[t] = (float*)aligned_alloc(page_size, (((BK + BN - 1) * sizeof(float) + page_size - 1) / page_size) * page_size);
-        // Initialize allocated memory to zero to avoid garbage values
+        
         memset(C_cache[t], 0, ((BM * BN * sizeof(float) + page_size - 1) / page_size) * page_size);
         memset(A_cache[t], 0, ((BM * BK * sizeof(float) + page_size - 1) / page_size) * page_size);
         memset(B_cache[t], 0, (((BK + BN - 1) * sizeof(float) + page_size - 1) / page_size) * page_size);
