@@ -18,13 +18,14 @@ void compute_reference(float* A, float* B, float* C, int M, int N, int K) {
         for (int j = 0; j < N; ++j) {
             float sum = 0.0f;
             for (int k = 0; k < K; ++k) {
-                sum += A[i * K + k] * B[k * N + j];
+                
+                    sum += A[i * K + k] * B[j*N+K];
+                
             }
             C[i * N + j] = sum;
         }
     }
 }
-
 bool verify_result(float* C_test, float* C_ref, int M, int N, float tolerance = 1e-3f) {
     for (int i = 0; i < M * N; ++i) {
         if (abs(C_test[i] - C_ref[i]) > tolerance) {
@@ -68,22 +69,31 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
                     }
 
                     for (int kk = 0; kk < BK; ++kk) {
-                        int global_k = k1 + kk;
+    int global_k = k1 + kk;
 
-                        int j_start = (global_k > n1) ? (global_k - n1) : 0;
-                        int j_end = min(BN, N - n1);
-                        int copy_size = j_end - j_start;
+    int row_offset = global_k * N - (global_k * (global_k - 1)) / 2;
+    int src_start = max(n1, global_k);                // first column to copy
+    int dst_start = src_start - n1;                   // where to place in local_B
+    int copy_count = max(0, min(n1 + BN, N) - src_start);
 
-                        if (j_start > 0) {
-                            memset(&local_B[kk * BN], 0, j_start * sizeof(float));
-                        }
+    // Zero left padding if needed
+    if (dst_start > 0) {
+        memset(&local_B[kk * BN], 0, dst_start * sizeof(float));
+    }
 
-                        memcpy(&local_B[kk * BN + j_start], &B[global_k * N + n1 + j_start], copy_size * sizeof(float));
+    // Copy actual upper triangular elements
+    if (copy_count > 0) {
+        memcpy(&local_B[kk * BN + dst_start],
+               &B[row_offset + (src_start - global_k)],
+               copy_count * sizeof(float));
+    }
 
-                        if (j_end < BN) {
-                            memset(&local_B[kk * BN + j_end], 0, (BN - j_end) * sizeof(float));
-                        }
-                    }
+    // Zero right padding if needed
+    int end_pad = BN - (dst_start + copy_count);
+    if (end_pad > 0) {
+        memset(&local_B[kk * BN + dst_start + copy_count], 0, end_pad * sizeof(float));
+    }
+}
 
                     for (int i = 0; i < BM; i += IT_M) {
                         for (int j = 0; j < BN; j += IT_N) {
@@ -304,17 +314,23 @@ int main(int argc, char* argv[]) {
 
     
 
-    vector<float> A(M * K), B(K * N), C_ref(M * N, 0.0f), C_test(M * N, 0.0f);
-    for (auto& x : A) x = static_cast<float>(rand() % 10);
+    vector<float> A(M * K), C_ref(M * N, 0.0f), C_test(M * N, 0.0f);
+    for (auto& x : A)
+        x = static_cast<float>(rand() % 10);
 
-    for (int i = 0; i < K; ++i) { 
-        for (int j = 0; j < N; ++j) { 
-            if (j >= i) { 
-                B[i * N + j] = static_cast<float>(rand() % 10 + 1);
-            } else {
-                B[i * N + j] = 0.0f;
-            }
+    int actual_size = (K * N) / 2;
+    vector<float> B(actual_size);
+
+    
+    int idx2 = 0;
+    for (int i = 0; i < K && idx2 < actual_size; ++i) {
+        for (int j = i; j < N && idx2 < actual_size; ++j) {
+            B[idx2++] = static_cast<float>(rand() % 10 + 1);
         }
+    }
+
+    if (idx2 < actual_size) {
+        memset(&B[idx2], 0, sizeof(float) * (actual_size - idx2));
     }
 
     if (check_results) {
@@ -359,6 +375,27 @@ int main(int argc, char* argv[]) {
 }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 //
 
 
@@ -387,6 +424,170 @@ int main(int argc, char* argv[]) {
 // BMxBNxBK = 128x64x64 | IT_MxIT_NxIT_K = 4x16x1 | Time: 5.569 ms | Avg GFLOP/s: 386.096 | PASS
 // BMxBNxBK = 128x256x256 | IT_MxIT_NxIT_K = 4x16x1 | Time: 6.036 ms | Avg GFLOP/s: 356.597 | PASS
 // aninay@aninay-ASUS-TUF-Gaming-A15-FA507NUR-FA507NUR:~/cpp1/cpp1$ 
+
+
+
+
+
+
+
+
+
+// template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K, bool IsMDivisible, bool IsNDivisible, bool IsKDivisible>
+// void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, 
+//                          double& gflops, double& time_ms, 
+//                          float** C_cache, float** A_cache, float** B_cache) {
+//     constexpr int vector_width = 8;
+
+//     auto start = high_resolution_clock::now();
+
+//     #pragma omp parallel for collapse(2) schedule(static)
+//     for (int m1 = 0; m1 < M; m1 += BM) {
+//         for (int n1 = 0; n1 < N; n1 += BN) {
+
+//             int thread_id = omp_get_thread_num();
+//             float* local_C = C_cache[thread_id];
+//             float* local_A = A_cache[thread_id];
+//             float* local_B = B_cache[thread_id];
+
+//             for (int i = 0; i < BM; ++i) {
+//                 int global_row = m1 + i;
+//                 int valid_cols = min(BN, N - n1);
+//                 memcpy(&local_C[i * BN], &C[global_row * N + n1], valid_cols * sizeof(float));
+//             }
+
+//             for (int k1 = 0; k1 < K; k1 += BK) {
+
+//                 if (n1 + BN > k1) {
+//                     for (int mm = 0; mm < BM; ++mm) {
+//                         int global_row = m1 + mm;
+//                         int valid_cols = min(BK, K - k1);
+//                         memcpy(&local_A[mm * BK], &A[global_row * K + k1], valid_cols * sizeof(float));
+//                     }
+
+//                     for (int kk = 0; kk < BK; ++kk) {
+//                         int global_k = k1 + kk;
+
+//                         int j_start = (global_k > n1) ? (global_k - n1) : 0;
+//                         int j_end = min(BN, N - n1);
+//                         int copy_size = j_end - j_start;
+
+//                         if (j_start > 0) {
+//                             memset(&local_B[kk * BN], 0, j_start * sizeof(float));
+//                         }
+
+//                         memcpy(&local_B[kk * BN + j_start], &B[global_k * N + n1 + j_start], copy_size * sizeof(float));
+
+//                         if (j_end < BN) {
+//                             memset(&local_B[kk * BN + j_end], 0, (BN - j_end) * sizeof(float));
+//                         }
+//                     }
+
+//                     for (int i = 0; i < BM; i += IT_M) {
+//                         for (int j = 0; j < BN; j += IT_N) {
+
+//                             __m256 C_tile[IT_M][IT_N / vector_width];
+
+//                             for (int mm = 0; mm < IT_M; ++mm) {
+//                                 for (int nn = 0; nn < IT_N / vector_width; ++nn) {
+//                                     int col_offset = j + nn * vector_width;
+//                                     C_tile[mm][nn] = _mm256_loadu_ps(&local_C[(i + mm) * BN + col_offset]);
+//                                 }
+//                             }
+
+//                             for (int p = 0; p < BK; p += IT_K) {
+//                                 for (int kk_inner = 0; kk_inner < IT_K; ++kk_inner) {
+//                                     int depth_local = p + kk_inner;
+//                                     int global_k = k1 + depth_local;
+
+//                                     __m256 A_vec[IT_M];
+//                                     for (int mm = 0; mm < IT_M; ++mm) {
+//                                         A_vec[mm] = _mm256_broadcast_ss(&local_A[(i + mm) * BK + depth_local]);
+//                                     }
+
+//                                     __m256 B_vec[IT_N / 8];
+//                                     for (int nn = 0; nn < IT_N / 8; ++nn) {
+                                       
+//                                         B_vec[nn] = _mm256_loadu_ps(&local_B[depth_local * BN + j + nn * vector_width]);
+//                                     }
+
+//                                     for (int mm = 0; mm < IT_M; ++mm) {
+//                                         for (int nn = 0; nn < IT_N / vector_width; ++nn) {
+//                                             C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_tile[mm][nn]);
+//                                         }
+//                                     }
+//                                 }
+//                             }
+
+//                             for (int mm = 0; mm < IT_M; ++mm) {
+//                                 for (int nn = 0; nn < IT_N / vector_width; ++nn) {
+//                                     int col_offset = j + nn * vector_width;
+//                                     _mm256_storeu_ps(&local_C[(i + mm) * BN + col_offset], C_tile[mm][nn]);
+//                                 }
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+
+//             for (int i = 0; i < BM; ++i) {
+//                 int global_row = m1 + i;
+//                 int valid_cols = min(BN, N - n1);
+//                 memcpy(&C[global_row * N + n1], &local_C[i * BN], valid_cols * sizeof(float));
+//             }
+//         }
+//     }
+
+//     auto end = high_resolution_clock::now();
+//     time_ms = duration<double, milli>(end - start).count();
+//     gflops = (2.0 * M * N * K) / (time_ms * 1e6);
+// }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
