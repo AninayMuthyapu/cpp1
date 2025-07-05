@@ -77,9 +77,9 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K,
                         if (dst_start > 0) {
                             memset(&local_B[kk * BN], 0, dst_start * sizeof(float));
                         }
-                        if (copy_count > 0) {
-                            memcpy(&local_B[kk * BN + dst_start],&B[row_offset + (src_start - global_k)],copy_count * sizeof(float));
-                        }
+                        
+                        memcpy(&local_B[kk * BN + dst_start],&B[row_offset + (src_start - global_k)],copy_count * sizeof(float));
+                        
                         int end_pad = BN - (dst_start + copy_count);
                         if (end_pad > 0) {
                             memset(&local_B[kk * BN + dst_start + copy_count], 0, end_pad * sizeof(float));
