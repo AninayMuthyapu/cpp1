@@ -334,31 +334,17 @@ int main(int argc, char* argv[]) {
     testOpenBLAS(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     cout << endl;
 
-    testBlockSize<128, 128, 128, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<256, 256, 256, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<64, 64, 64, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-
+  testBlockSize<64, 64, 64, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
     testBlockSize<128, 128, 128, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<256, 256, 256, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<64, 64, 64, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-
-    testBlockSize<128, 256, 256, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<64, 256, 256, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<128, 256, 256, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-
-    testBlockSize<32, 32, 32, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<32, 64, 64, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<32, 32, 32, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<32, 128, 128, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<128, 32, 32, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<256, 32, 32, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-
-    testBlockSize<256, 128, 128, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<256, 256, 256, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<256, 64, 64, 8, 8, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<256, 128, 128, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<128, 64, 64, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
-    testBlockSize<128, 256, 256, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+     testBlockSize<256, 128, 64, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+     testBlockSize<256, 128, 128, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+ 
+    testBlockSize<256, 128, 32, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<256, 256, 32, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<256, 64, 64, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<256, 128, 32, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 128, 64, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
+    testBlockSize<128, 256, 64, 4, 16, 1>(A.data(), B_matrix.data(), C_test.data(), C_ref.data(), M, N, K, itr, results, idx, check_results);
 
     return 0;
 }
