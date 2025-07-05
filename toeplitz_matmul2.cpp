@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include <algorithm>
 #include <string>
-#include "anyoption.h"
+#include "anyoption.h" 
 
 using namespace std;
 using namespace std::chrono;
@@ -47,7 +47,7 @@ void compute_matrix_multi1(float* A, float* B_new, float* C,
                           int M, int N, int K, double& gflops, double& time_ms,
                           float** C_cache, float** A_cache, float** B_cache) {
 
-    constexpr int vector_width = 8;
+    constexpr int vector_width = 8; 
 
     auto start = high_resolution_clock::now();
 
@@ -65,22 +65,33 @@ void compute_matrix_multi1(float* A, float* B_new, float* C,
             for (int k1 = 0; k1 < K; k1 += BK) {
                 for (int i = 0; i < BM; ++i)
                     memcpy(&local_A[i * BK], &A[(m1 + i) * K + k1], BK * sizeof(float));
-                    int min_diff = n1 - (k1 + BK - 1);
-                    int max_diff = (n1 + BN - 1) - k1;
-                    int b_start = (K - 1) + min_diff;
-                    int b_end   = (K - 1) + max_diff;
 
-                    int src_start = max(0, b_start);
-                    int src_end   = min(K + N - 1, b_end + 1);
+               
+                int min_diff_current_block = n1 - (k1 + BK - 1);
+                int max_diff_current_block = (n1 + BN - 1) - k1;
 
-                    memset(local_B, 0, (BK + BN - 1) * sizeof(float));
+                int b_start = (K - 1) + min_diff_current_block;
+                int b_end   = (K - 1) + max_diff_current_block;
 
-                    if (src_end > src_start) {
-                        int dest_idx = (src_start - (K - 1)) - min_diff;
-                        memcpy(&local_B[dest_idx],
-                               &B_new[src_start],
-                               (src_end - src_start) * sizeof(float));
-                    }
+                int src_start = max(0, b_start);
+                int src_end   = min(K + N - 1, b_end + 1);
+
+                int dest_idx = (src_start - (K - 1)) - min_diff_current_block;
+                int copy_len = src_end - src_start;
+                int after_copy_idx = dest_idx + copy_len;
+                int remaining = (BK + BN - 1) - after_copy_idx;
+
+                if (dest_idx > 0) {
+                    memset(&local_B[0], 0, dest_idx * sizeof(float));
+                }
+
+                if (copy_len > 0) {
+                    memcpy(&local_B[dest_idx], &B_new[src_start], copy_len * sizeof(float));
+                }
+
+                if (remaining > 0) {
+                    memset(&local_B[after_copy_idx], 0, remaining * sizeof(float));
+                }
 
                 for (int i_tile = 0; i_tile < BM; i_tile += IT_M) {
                     for (int j_tile = 0; j_tile < BN; j_tile += IT_N) {
@@ -99,8 +110,9 @@ void compute_matrix_multi1(float* A, float* B_new, float* C,
                                     int current_j_global = n1 + j_tile + nn_vec * vector_width;
                                     int current_k_global = k1 + p_tile + kk;
                                     int current_diff = current_j_global - current_k_global;
+                                    
                                     int local_b_load_idx = current_diff - min_diff_current_block;
-                                    const __m256i reverse = _mm256_set_epi32(7,6,5,4,3,2,1,0);
+                                    const __m256i reverse = _mm256_set_epi32(7,6,5,4,3,2,1,0); 
                                     __m256 b_vec_loaded = _mm256_loadu_ps(&local_B[local_b_load_idx]);
                                     B_vec[nn_vec] = _mm256_permutevar8x32_ps(b_vec_loaded, reverse);
                                 }
@@ -192,6 +204,8 @@ void testBlockSize(float* A, float* B_matrix, float* C_test, float* C_ref, int M
     vector<float> C_copy(M * N);
     int max_threads = omp_get_max_threads();
     long page_size = sysconf(_SC_PAGESIZE);
+    
+    // Allocate caches once, before the loops for computation
     float** C_cache = new float*[max_threads];
     float** A_cache = new float*[max_threads];
     float** B_cache = new float*[max_threads];
@@ -203,13 +217,10 @@ void testBlockSize(float* A, float* B_matrix, float* C_test, float* C_ref, int M
         C_cache[t] = (float*)aligned_alloc(page_size, ((BM * BN * sizeof(float) + page_size - 1) / page_size) * page_size);
         A_cache[t] = (float*)aligned_alloc(page_size, ((BM * BK * sizeof(float) + page_size - 1) / page_size) * page_size);
         B_cache[t] = (float*)aligned_alloc(page_size, (((BK + BN - 1) * sizeof(float) + page_size - 1) / page_size) * page_size);
-        
-            delete[] C_cache;
-            delete[] A_cache;
-            delete[] B_cache;
-            delete[] B_new;
-            
-        }
+        // Initialize allocated memory to zero to avoid garbage values
+        memset(C_cache[t], 0, ((BM * BN * sizeof(float) + page_size - 1) / page_size) * page_size);
+        memset(A_cache[t], 0, ((BM * BK * sizeof(float) + page_size - 1) / page_size) * page_size);
+        memset(B_cache[t], 0, (((BK + BN - 1) * sizeof(float) + page_size - 1) / page_size) * page_size);
     }
 
     double gflops, time_ms;
@@ -231,6 +242,8 @@ void testBlockSize(float* A, float* B_matrix, float* C_test, float* C_ref, int M
         total_gflops += gflops;
         total_time_ms += time_ms;
     }
+    
+    
     for (int t = 0; t < max_threads; ++t) {
         free(C_cache[t]);
         free(A_cache[t]);
@@ -240,6 +253,7 @@ void testBlockSize(float* A, float* B_matrix, float* C_test, float* C_ref, int M
     delete[] A_cache;
     delete[] B_cache;
     delete[] B_new;
+
     memcpy(C_test, C_copy.data(), M * N * sizeof(float));
     float avg_gflops = static_cast<float>(total_gflops / iterations);
     float avg_time_ms = static_cast<float>(total_time_ms / iterations);
