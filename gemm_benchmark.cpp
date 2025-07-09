@@ -102,7 +102,7 @@ void compute_matrix_multi1(float* A, float* B, float* C, int M, int N, int K, do
 
                 for (int i = 0; i < BM; i += IT_M) {
                     for (int j = 0; j < BN; j += j_step) {
-                        __m256 C_vec[IT_M][IT_N/8];
+                        _m256 C_vec[IT_M][IT_N/8];
                         
                         for (int mm = 0; mm < IT_M; ++mm) {
                             for (int nn = 0; nn < IT_N/8; ++nn) {
@@ -251,7 +251,7 @@ void testBlockSize(float* A, float* B, float* C, float* C_ref, int M, int N, int
         total_time_ms += time_ms;
     }
 
-    // Clean up
+   
     for (int t = 0; t < max_threads; ++t) {
         free(C_cache[t]);
         free(A_cache[t]);
