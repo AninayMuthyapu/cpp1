@@ -9,12 +9,12 @@ add_layout_rules = {
     (Property.TOEPLITZ, Property.TOEPLITZ): Property.TOEPLITZ,
 }
 
-# Ensure commutativity (A + B == B + A)
+# commutativity (A + B == B + A)
 for (a, b), result in list(add_layout_rules.items()):
     if (b, a) not in add_layout_rules:
         add_layout_rules[(b, a)] = result
 
-# General rule fallback
+# General 
 for layout in Property:
     add_layout_rules[(layout, Property.GENERAL)] = Property.GENERAL
     add_layout_rules[(Property.GENERAL, layout)] = Property.GENERAL
@@ -42,13 +42,13 @@ matmul_layout_rules = {
     (Property.TOEPLITZ, Property.TOEPLITZ): Property.GENERAL,
 }
 
-# Fallback rules for matmul
+
 for layout in Property:
     matmul_layout_rules[(layout, Property.GENERAL)] = Property.GENERAL
     matmul_layout_rules[(Property.GENERAL, layout)] = Property.GENERAL
 
 
-# --- Layout Inference Dispatcher ---
+
 def get_layout_result(op: str, left: Property, right: Property) -> Property:
     if op == "+":
         return add_layout_rules.get((left, right), Property.GENERAL)

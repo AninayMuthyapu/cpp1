@@ -8,16 +8,16 @@ class Operation(Matrix):
         self.inputs = inputs
         self.operations_type = operations_type
 
-        # Link inputs to this operation
+       
         for inp in inputs:
             inp.parents.append(self)
 
-        # Infer shape, dtype, layout
+        
         shape = self.infer_shape()
         dtype = self.infer_dtype()
         layout = self.infer_layout()
 
-        # Initialize as a Matrix
+       
         super().__init__(shape, dtype, layout)
 
     def infer_shape(self):
@@ -41,7 +41,7 @@ class Operation(Matrix):
         A = self.inputs[0]
         B = self.inputs[1] if len(self.inputs) > 1 else None
 
-        # Map operation type to symbolic operators
+        
         op_symbol = {
             "add": "+",
             "sub": "-",

@@ -1,13 +1,13 @@
-from .properties import Property  # Use your enum for layout
+from .properties import Property  
 
 
 class Matrix:
     def __init__(self, shape, dtype="float", layout=Property.GENERAL, name=None):
         self.shape = shape              # (rows, cols)
         self.dtype = dtype              # "float" or "double"
-        self.layout = layout            # from Property enum
+        self.layout = layout            
         self.name = name or "unnamed"
-        self.parents = []              # Used to trace the DAG
+        self.parents = []              
 
     def __add__(self, other):
         from .operations import Operation
@@ -34,7 +34,7 @@ class Matrix:
                 f"dtype={self.dtype}, layout={self.layout}, name={self.name})")
 
 
-# Layout-specific matrix types using Property enum
+
 class GeneralMatrix(Matrix):
     def __init__(self, shape, dtype="float"):
         super().__init__(shape, dtype, Property.GENERAL)
