@@ -1,5 +1,6 @@
-from src.dsl.properties import Property
+from .properties import Property
 
+# --- Addition and Subtraction Rules ---
 add_layout_rules = {
     (Property.DIAGONAL, Property.DIAGONAL): Property.DIAGONAL,
     (Property.UPPER_TRIANGULAR, Property.UPPER_TRIANGULAR): Property.UPPER_TRIANGULAR,
@@ -8,17 +9,21 @@ add_layout_rules = {
     (Property.TOEPLITZ, Property.TOEPLITZ): Property.TOEPLITZ,
 }
 
+# Ensure commutativity (A + B == B + A)
 for (a, b), result in list(add_layout_rules.items()):
     if (b, a) not in add_layout_rules:
         add_layout_rules[(b, a)] = result
 
+# General rule fallback
 for layout in Property:
     add_layout_rules[(layout, Property.GENERAL)] = Property.GENERAL
     add_layout_rules[(Property.GENERAL, layout)] = Property.GENERAL
 
-
+# Subtraction uses same rules as addition
 sub_layout_rules = dict(add_layout_rules)
 
+
+# --- Matrix Multiplication Rules ---
 matmul_layout_rules = {
     (Property.DIAGONAL, Property.DIAGONAL): Property.DIAGONAL,
     (Property.UPPER_TRIANGULAR, Property.DIAGONAL): Property.UPPER_TRIANGULAR,
@@ -29,17 +34,22 @@ matmul_layout_rules = {
     (Property.DIAGONAL, Property.SYMMETRIC): Property.SYMMETRIC,
     (Property.TOEPLITZ, Property.DIAGONAL): Property.TOEPLITZ,
     (Property.DIAGONAL, Property.TOEPLITZ): Property.TOEPLITZ,
+
+    (Property.UPPER_TRIANGULAR, Property.UPPER_TRIANGULAR): Property.UPPER_TRIANGULAR,
+    (Property.LOWER_TRIANGULAR, Property.LOWER_TRIANGULAR): Property.LOWER_TRIANGULAR,
+    (Property.LOWER_TRIANGULAR, Property.UPPER_TRIANGULAR): Property.GENERAL,
+    (Property.UPPER_TRIANGULAR, Property.LOWER_TRIANGULAR): Property.GENERAL,
+    (Property.TOEPLITZ, Property.TOEPLITZ): Property.GENERAL,
 }
 
-
+# Fallback rules for matmul
 for layout in Property:
     matmul_layout_rules[(layout, Property.GENERAL)] = Property.GENERAL
     matmul_layout_rules[(Property.GENERAL, layout)] = Property.GENERAL
 
 
-
+# --- Layout Inference Dispatcher ---
 def get_layout_result(op: str, left: Property, right: Property) -> Property:
-    
     if op == "+":
         return add_layout_rules.get((left, right), Property.GENERAL)
     elif op == "-":
@@ -48,4 +58,3 @@ def get_layout_result(op: str, left: Property, right: Property) -> Property:
         return matmul_layout_rules.get((left, right), Property.GENERAL)
     else:
         raise ValueError(f"Operator '{op}' not supported.")
-

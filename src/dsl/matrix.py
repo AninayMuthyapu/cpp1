@@ -1,61 +1,66 @@
-class Matrix:
-    def __init__(self,shape,dtype="float",layout="general",name=None):
-        self.shape = shape
-        self.dtype = dtype
-        self.layout = layout
-        self.name = name
-        self.parents=[]
+from .properties import Property  # Use your enum for layout
 
-    def __add__(self,other):
-        from operations import Operation
-        return Operation([self,other],"add")
+
+class Matrix:
+    def __init__(self, shape, dtype="float", layout=Property.GENERAL, name=None):
+        self.shape = shape              # (rows, cols)
+        self.dtype = dtype              # "float" or "double"
+        self.layout = layout            # from Property enum
+        self.name = name or "unnamed"
+        self.parents = []              # Used to trace the DAG
+
+    def __add__(self, other):
+        from .operations import Operation
+        return Operation([self, other], "add")
     
-    def __sub__(self,other):
-        from operations import Operation
-        return Operation([self,other],"sub")
+    def __sub__(self, other):
+        from .operations import Operation
+        return Operation([self, other], "sub")
     
-    def __matmul__(self,other):
-        from operations import Operation
-        return Operation([self,other],"matmul")
+    def __matmul__(self, other):
+        from .operations import Operation
+        return Operation([self, other], "matmul")
     
     def transpose(self):
-        from operations import Operation
-        return Operation([self],"transpose")
+        from .operations import Operation
+        return Operation([self], "transpose")
     
     def inverse(self):
-        from operations import Operation
-        return Operation([self],"inverse")
+        from .operations import Operation
+        return Operation([self], "inverse")
     
     def __repr__(self):
-        return f"Matrix(shape={self.shape}, dtype={self.dtype}, layout={self.layout})"
+        return (f"{self.__class__.__name__}(shape={self.shape}, "
+                f"dtype={self.dtype}, layout={self.layout}, name={self.name})")
 
 
-
+# Layout-specific matrix types using Property enum
 class GeneralMatrix(Matrix):
     def __init__(self, shape, dtype="float"):
-        super().__init__(shape, dtype, "general")
+        super().__init__(shape, dtype, Property.GENERAL)
 
 class DiagonalMatrix(Matrix):
     def __init__(self, shape, dtype="float"):
-        super().__init__(shape, dtype, "diagonal")    
+        super().__init__(shape, dtype, Property.DIAGONAL)    
 
 class UpperTriangularMatrix(Matrix):
     def __init__(self, shape, dtype="float"):
-        super().__init__(shape, dtype, "upper_triangular")  
+        super().__init__(shape, dtype, Property.UPPER_TRIANGULAR)  
 
 class LowerTriangularMatrix(Matrix):
     def __init__(self, shape, dtype="float"):
-        super().__init__(shape, dtype, "lower_triangular")  
+        super().__init__(shape, dtype, Property.LOWER_TRIANGULAR)  
 
 class SymmetricMatrix(Matrix):
     def __init__(self, shape, dtype="float"):
-        super().__init__(shape, dtype, "symmetric")
+        super().__init__(shape, dtype, Property.SYMMETRIC)
 
 class ToeplitzMatrix(Matrix):
     def __init__(self, shape, dtype="float"):
-        super().__init__(shape, dtype, "toeplitz")
+        super().__init__(shape, dtype, Property.TOEPLITZ)
 
-class IdentityMatrix(Matrix):
-    def __init__(self, shape, dtype="float"):
-        super().__init__(shape, dtype, "identity")
+# class IdentityMatrix(Matrix):
+#     def __init__(self, shape, dtype="float"):
+#         super().__init__(shape, dtype, Property.IDENTITY)
+
 
