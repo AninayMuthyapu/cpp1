@@ -1,6 +1,6 @@
 from .matrix import Matrix
 from .layout_rules import get_layout_result
-from .properties import Property
+from .layout import Layout
 
 
 class Operation(Matrix):
@@ -8,16 +8,13 @@ class Operation(Matrix):
         self.inputs = inputs
         self.operations_type = operations_type
 
-       
         for inp in inputs:
             inp.parents.append(self)
 
-        
         shape = self.infer_shape()
         dtype = self.infer_dtype()
         layout = self.infer_layout()
 
-       
         super().__init__(shape, dtype, layout)
 
     def infer_shape(self):
@@ -41,7 +38,6 @@ class Operation(Matrix):
         A = self.inputs[0]
         B = self.inputs[1] if len(self.inputs) > 1 else None
 
-        
         op_symbol = {
             "add": "+",
             "sub": "-",
@@ -52,19 +48,22 @@ class Operation(Matrix):
             return get_layout_result(op_symbol, A.layout, B.layout)
 
         elif self.operations_type == "transpose":
-            if A.layout == Property.UPPER_TRIANGULAR:
-                return Property.LOWER_TRIANGULAR
-            elif A.layout == Property.LOWER_TRIANGULAR:
-                return Property.UPPER_TRIANGULAR
+            if A.layout == Layout.UPPER_TRIANGULAR:
+                return Layout.LOWER_TRIANGULAR
+            elif A.layout == Layout.LOWER_TRIANGULAR:
+                return Layout.UPPER_TRIANGULAR
             else:
                 return A.layout
 
         elif self.operations_type == "inverse":
-            if A.layout in [Property.DIAGONAL, Property.SYMMETRIC, Property.IDENTITY]:
+            if A.layout in [Layout.DIAGONAL, Layout.SYMMETRIC, Layout.IDENTITY]:
                 return A.layout
-            return Property.GENERAL
+            return Layout.GENERAL
 
-        return Property.GENERAL
+        return Layout.GENERAL
+
+    def accept(self, visitor):
+        return visitor.visit_operation(self)
 
     def __repr__(self):
         return (

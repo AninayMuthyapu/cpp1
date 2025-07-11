@@ -1,60 +1,60 @@
-from .properties import Property
+from .layout import Layout, LayoutError
 
-# --- Addition and Subtraction Rules ---
+
 add_layout_rules = {
-    (Property.DIAGONAL, Property.DIAGONAL): Property.DIAGONAL,
-    (Property.UPPER_TRIANGULAR, Property.UPPER_TRIANGULAR): Property.UPPER_TRIANGULAR,
-    (Property.LOWER_TRIANGULAR, Property.LOWER_TRIANGULAR): Property.LOWER_TRIANGULAR,
-    (Property.SYMMETRIC, Property.SYMMETRIC): Property.SYMMETRIC,
-    (Property.TOEPLITZ, Property.TOEPLITZ): Property.TOEPLITZ,
+    (Layout.DIAGONAL, Layout.DIAGONAL): Layout.DIAGONAL,
+    (Layout.UPPER_TRIANGULAR, Layout.UPPER_TRIANGULAR): Layout.UPPER_TRIANGULAR,
+    (Layout.LOWER_TRIANGULAR, Layout.LOWER_TRIANGULAR): Layout.LOWER_TRIANGULAR,
+    (Layout.SYMMETRIC, Layout.SYMMETRIC): Layout.SYMMETRIC,
+    (Layout.TOEPLITZ, Layout.TOEPLITZ): Layout.TOEPLITZ,
 }
 
-# commutativity (A + B == B + A)
+
 for (a, b), result in list(add_layout_rules.items()):
     if (b, a) not in add_layout_rules:
         add_layout_rules[(b, a)] = result
 
-# General 
-for layout in Property:
-    add_layout_rules[(layout, Property.GENERAL)] = Property.GENERAL
-    add_layout_rules[(Property.GENERAL, layout)] = Property.GENERAL
 
-# Subtraction uses same rules as addition
+for layout in Layout:
+    add_layout_rules[(layout, Layout.GENERAL)] = Layout.GENERAL
+    add_layout_rules[(Layout.GENERAL, layout)] = Layout.GENERAL
+
+
 sub_layout_rules = dict(add_layout_rules)
 
 
-# --- Matrix Multiplication Rules ---
-matmul_layout_rules = {
-    (Property.DIAGONAL, Property.DIAGONAL): Property.DIAGONAL,
-    (Property.UPPER_TRIANGULAR, Property.DIAGONAL): Property.UPPER_TRIANGULAR,
-    (Property.DIAGONAL, Property.UPPER_TRIANGULAR): Property.UPPER_TRIANGULAR,
-    (Property.LOWER_TRIANGULAR, Property.DIAGONAL): Property.LOWER_TRIANGULAR,
-    (Property.DIAGONAL, Property.LOWER_TRIANGULAR): Property.LOWER_TRIANGULAR,
-    (Property.SYMMETRIC, Property.DIAGONAL): Property.SYMMETRIC,
-    (Property.DIAGONAL, Property.SYMMETRIC): Property.SYMMETRIC,
-    (Property.TOEPLITZ, Property.DIAGONAL): Property.TOEPLITZ,
-    (Property.DIAGONAL, Property.TOEPLITZ): Property.TOEPLITZ,
 
-    (Property.UPPER_TRIANGULAR, Property.UPPER_TRIANGULAR): Property.UPPER_TRIANGULAR,
-    (Property.LOWER_TRIANGULAR, Property.LOWER_TRIANGULAR): Property.LOWER_TRIANGULAR,
-    (Property.LOWER_TRIANGULAR, Property.UPPER_TRIANGULAR): Property.GENERAL,
-    (Property.UPPER_TRIANGULAR, Property.LOWER_TRIANGULAR): Property.GENERAL,
-    (Property.TOEPLITZ, Property.TOEPLITZ): Property.GENERAL,
+matmul_layout_rules = {
+    (Layout.DIAGONAL, Layout.DIAGONAL): Layout.DIAGONAL,
+    (Layout.UPPER_TRIANGULAR, Layout.DIAGONAL): Layout.UPPER_TRIANGULAR,
+    (Layout.DIAGONAL, Layout.UPPER_TRIANGULAR): Layout.UPPER_TRIANGULAR,
+    (Layout.LOWER_TRIANGULAR, Layout.DIAGONAL): Layout.LOWER_TRIANGULAR,
+    (Layout.DIAGONAL, Layout.LOWER_TRIANGULAR): Layout.LOWER_TRIANGULAR,
+    (Layout.SYMMETRIC, Layout.DIAGONAL): Layout.SYMMETRIC,
+    (Layout.DIAGONAL, Layout.SYMMETRIC): Layout.SYMMETRIC,
+    (Layout.TOEPLITZ, Layout.DIAGONAL): Layout.TOEPLITZ,
+    (Layout.DIAGONAL, Layout.TOEPLITZ): Layout.TOEPLITZ,
+
+    (Layout.UPPER_TRIANGULAR, Layout.UPPER_TRIANGULAR): Layout.UPPER_TRIANGULAR,
+    (Layout.LOWER_TRIANGULAR, Layout.LOWER_TRIANGULAR): Layout.LOWER_TRIANGULAR,
+    (Layout.LOWER_TRIANGULAR, Layout.UPPER_TRIANGULAR): Layout.GENERAL,
+    (Layout.UPPER_TRIANGULAR, Layout.LOWER_TRIANGULAR): Layout.GENERAL,
+    (Layout.TOEPLITZ, Layout.TOEPLITZ): Layout.GENERAL,
 }
 
 
-for layout in Property:
-    matmul_layout_rules[(layout, Property.GENERAL)] = Property.GENERAL
-    matmul_layout_rules[(Property.GENERAL, layout)] = Property.GENERAL
+for layout in Layout:
+    matmul_layout_rules[(layout, Layout.GENERAL)] = Layout.GENERAL
+    matmul_layout_rules[(Layout.GENERAL, layout)] = Layout.GENERAL
 
 
 
-def get_layout_result(op: str, left: Property, right: Property) -> Property:
+def get_layout_result(op: str, left: Layout, right: Layout) -> Layout:
     if op == "+":
-        return add_layout_rules.get((left, right), Property.GENERAL)
+        return add_layout_rules.get((left, right), Layout.GENERAL)
     elif op == "-":
-        return sub_layout_rules.get((left, right), Property.GENERAL)
+        return sub_layout_rules.get((left, right), Layout.GENERAL)
     elif op == "@":
-        return matmul_layout_rules.get((left, right), Property.GENERAL)
+        return matmul_layout_rules.get((left, right), Layout.GENERAL)
     else:
         raise ValueError(f"Operator '{op}' not supported.")

@@ -1,9 +1,9 @@
 from enum import Enum 
 
-class PropertyError(Exception):
+class LayoutError(Exception):
     pass
 
-class Property(Enum):
+class Layout(Enum):
     AUXILIARY = "auxiliary"
     SCALER = "scaler"
     VECTOR = "vector"
@@ -22,7 +22,7 @@ class Property(Enum):
 
 
 
-layout_properties = list(Property)
+layout_properties = list(Layout)
 conflicts = {
     prop: set(other for other in layout_properties if other != prop)
     for prop in layout_properties
@@ -30,12 +30,12 @@ conflicts = {
 
 
 
-def check_conflicts(props: set[Property]):
+def check_conflicts(props: set[Layout]):
     for prop in props:
         if prop in conflicts:
             conflicting = conflicts[prop].intersection(props)
             if conflicting:
-                raise PropertyError(
+                raise LayoutError(
                     f"{prop.value} conflicts with: {', '.join(p.value for p in conflicting)}"
                 )
 
