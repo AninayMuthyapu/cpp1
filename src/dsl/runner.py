@@ -5,12 +5,11 @@ from dsl.var import Var
 
 
 def run(outputs, inputs: dict):
-    def resolve_dim(dim):
-        if isinstance(dim, Var):
-            return int(dim.name)  
-        return dim
+   def resolve_shape_value(shape_element, inputs):
+    if isinstance(shape_element, Var):
+        return int(inputs[shape_element.name])
+    return shape_element
 
-    
     lib_path = os.path.abspath("src/cpp/libdsl.so")
     lib = ctypes.CDLL(lib_path)
 
@@ -18,8 +17,9 @@ def run(outputs, inputs: dict):
     func.argtypes = [ctypes.POINTER(ctypes.c_float)] * 3 + [ctypes.c_int, ctypes.c_int]
 
     output = outputs[0]
-    M = resolve_dim(output.shape[0])
-    N = resolve_dim(output.shape[1])
+    M = resolve_shape_value(output.shape[0], inputs)
+    N = resolve_shape_value(output.shape[1], inputs)
+
 
     A_np = list(inputs.values())[0].astype(np.float32)
     B_np = list(inputs.values())[1].astype(np.float32)
