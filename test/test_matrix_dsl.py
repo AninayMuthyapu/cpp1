@@ -1,9 +1,9 @@
-from dsl.matrix import (
+from src.dsl.matrix import (
     GeneralMatrix, DiagonalMatrix, UpperTriangularMatrix,
     LowerTriangularMatrix, SymmetricMatrix, ToeplitzMatrix
 )
-from dsl.layout import Layout
-from dsl.var import Var
+from src.dsl.layout import Layout
+from src.dsl.var import Var
 
 def test_addition_same_layout():
     A = DiagonalMatrix((Var(5), Var(9)))
