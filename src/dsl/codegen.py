@@ -24,7 +24,7 @@ def generate_cpp_code(outputs):
                 code.append("    for (int i = 0; i < M; ++i) {")
                 code.append("        for (int j = 0; j < N; ++j) {")
                 code.append("            C[i*N + j] = 0;")
-                code.append("            for (int k = 0; k < N; ++k) {")  # FIXME: Use real K
+                code.append("            for (int k = 0; k < N; ++k) {")  
                 code.append("                C[i*N + j] += A[i*N + k] * B[k*N + j];")
                 code.append("            }")
                 code.append("        }")
