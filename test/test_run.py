@@ -1,17 +1,25 @@
 from dsl.var import Var
-from dsl.matrix import GeneralMatrix
 from dsl.runner import run
+from dsl.matrix import GeneralMatrix
 import numpy as np
 
-A = GeneralMatrix((Var(4), Var(4)))
-B = GeneralMatrix((Var(4), Var(4)))
-C = A + B
+M = Var("M")
+N = Var("N")
 
-outputs = [C]
+A = GeneralMatrix((M, N))
+B = GeneralMatrix((M, N))
+C = A + B
+C.name = "C"
+
 inputs = {
-    A: np.random.rand(4, 4).astype(np.float32),
-    B: np.random.rand(4, 4).astype(np.float32),
+    "A": np.random.rand(4, 4),
+    "B": np.random.rand(4, 4),
+    "M": 4,
+    "N": 4,
 }
 
-result = run(outputs, inputs)
-print(result)
+result = run([C], inputs)
+print(result["C"])
+
+
+
