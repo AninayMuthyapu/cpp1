@@ -1,35 +1,58 @@
-import ctypes
+import subprocess
 import numpy as np
+import ctypes
 import os
-from dsl.var import Var  
+from dsl.codegen import generate_cpp_code
+from dsl.var import Var
+
+def extract_shape(shape, inputs):
+    resolved = []
+    for dim in shape:
+        if isinstance(dim, Var):
+            resolved.append(inputs[dim.name])
+        elif isinstance(dim, int):
+            resolved.append(dim)
+        else:
+            raise ValueError(f"Invalid dimension: {dim}")
+    return tuple(resolved)
+
+def run(outputs, inputs):
+    cpp_code = generate_cpp_code(outputs)
+    cpp_path = "generated.cpp"
+    so_path = "generated.so"
+
+    with open(cpp_path, "w") as f:
+        f.write(cpp_code)
+
+    compile_cmd = [
+        "g++", "-O3", "-std=c++17", "-fPIC", "-shared",
+        "-D_GLIBCXX_USE_CXX11_ABI=0",
+        cpp_path, "-o", so_path,
+        "-L", os.environ["CONDA_PREFIX"] + "/lib", "-lopenblas"
+    ]
+    print("Compiling with:", " ".join(compile_cmd))
+    subprocess.run(compile_cmd, check=True)
+
+    lib = ctypes.CDLL(os.path.abspath(so_path))
+
+    output_var = outputs[0]
+    output_name = getattr(output_var, "name", None) or "C"
+    output_var.name = output_name
+    M, N = extract_shape(output_var.shape, inputs)
+
+    C = np.zeros((M, N), dtype=np.float32)
+
+    ptrs = {}
+    for name, array in inputs.items():
+        if isinstance(array, np.ndarray):
+            arr32 = array.astype(np.float32)
+            ptrs[name] = arr32.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+
+    C_ptr = C.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+
+    lib.compute(ptrs["A"], ptrs["B"], C_ptr, M, N)
+
+    return {output_name: C}
 
 
-def run(outputs, inputs: dict):
-   def resolve_shape_value(shape_element, inputs):
-    if isinstance(shape_element, Var):
-        return int(inputs[shape_element.name])
-    return shape_element
 
-    lib_path = os.path.abspath("src/cpp/libdsl.so")
-    lib = ctypes.CDLL(lib_path)
-
-    func = lib.compute
-    func.argtypes = [ctypes.POINTER(ctypes.c_float)] * 3 + [ctypes.c_int, ctypes.c_int]
-
-    output = outputs[0]
-    M = resolve_shape_value(output.shape[0], inputs)
-    N = resolve_shape_value(output.shape[1], inputs)
-
-
-    A_np = list(inputs.values())[0].astype(np.float32)
-    B_np = list(inputs.values())[1].astype(np.float32)
-    C_np = np.zeros_like(A_np, dtype=np.float32)
-
-    func(
-        A_np.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-        B_np.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-        C_np.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-        M, N
-    )
-
-    return C_np
