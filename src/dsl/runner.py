@@ -4,7 +4,7 @@ import ctypes
 import os
 from dsl.codegen_openblas import compute_openblas
 from dsl.codegen import generate_cpp_code
-from dsl.codegen_numpy import compute_numpy
+from dsl.codegen_numpy import to_numpy_expr
 from dsl.var import Var
 
 def extract_shape(shape, inputs):
@@ -25,9 +25,10 @@ def run(outputs, inputs, backend="openblas"):
     M, N = extract_shape(output_var.shape, inputs)
 
     if backend == "numpy":
-        func = compute_numpy([output_var])
-        return {output_name: func(inputs)}
-    
+        result = to_numpy_expr(output_var, inputs)
+        C = result.astype(np.float32)
+        return {output_var.name: C}
+
     elif backend == "cpp":
         cpp_code = generate_cpp_code([output_var])
         cpp_path = "generated_cpp.cpp"
@@ -39,12 +40,10 @@ def run(outputs, inputs, backend="openblas"):
             "-O3", "-std=c++17", "-fPIC", "-shared",
             cpp_path, "-o", so_path
         ]
-
-
         print("Compiling C++ with:", " ".join(compile_cmd))
         subprocess.run(compile_cmd, check=True)
         lib = ctypes.CDLL(os.path.abspath(so_path))
-    
+
     elif backend == "openblas":
         cpp_code = compute_openblas([output_var])
         cpp_path = "generated_openblas.cpp"
@@ -54,7 +53,6 @@ def run(outputs, inputs, backend="openblas"):
         compile_cmd = [
             "/usr/bin/g++",
             "-O3", "-std=c++17", "-fPIC", "-shared",
-            
             "-I", "/usr/include/x86_64-linux-gnu",
             cpp_path, "-o", so_path,
             "-L", "/usr/lib/x86_64-linux-gnu", "-lopenblas"
@@ -66,7 +64,6 @@ def run(outputs, inputs, backend="openblas"):
     else:
         raise ValueError(f"Unsupported backend: {backend}")
 
-    # Prepare input and output buffers
     C = np.zeros((M, N), dtype=np.float32)
     ptrs = {}
     for name, array in inputs.items():
@@ -78,6 +75,3 @@ def run(outputs, inputs, backend="openblas"):
     lib.compute(ptrs["A"], ptrs["B"], C_ptr, M, N, K)
 
     return {output_name: C}
-
-
-
