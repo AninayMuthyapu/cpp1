@@ -1,39 +1,45 @@
-
-
 from dsl.operations import Operation
 from dsl.var import Var
 
 def generate_cpp_code(outputs):
-    code = [
-        "#include <cstddef>",
-        "#include <iostream>",
-        "extern \"C\" void compute(float* A, float* B, float* C, int M, int N) {"
-    ]
+    code = """
+#include <cstddef>
+#include <iostream>
 
+extern "C" void compute(float* A, float* B, float* C, int M, int N) {
+"""
     for out in outputs:
         if isinstance(out, Operation):
             if out.operations_type == "add":
-                code.append("    for (int i = 0; i < M * N; ++i) {")
-                code.append("        C[i] = A[i] + B[i];")
-                code.append("    }")
+                code += """
+    for (int i = 0; i < M * N; ++i) {
+        C[i] = A[i] + B[i];
+    }
+"""
             elif out.operations_type == "sub":
-                code.append("    for (int i = 0; i < M * N; ++i) {")
-                code.append("        C[i] = A[i] - B[i];")
-                code.append("    }")
+                code += """
+    for (int i = 0; i < M * N; ++i) {
+        C[i] = A[i] - B[i];
+    }
+"""
             elif out.operations_type == "matmul":
-                code.append("    for (int i = 0; i < M; ++i) {")
-                code.append("        for (int j = 0; j < N; ++j) {")
-                code.append("            C[i*N + j] = 0;")
-                code.append("            for (int k = 0; k < N; ++k) {")  
-                code.append("                C[i*N + j] += A[i*N + k] * B[k*N + j];")
-                code.append("            }")
-                code.append("        }")
-                code.append("    }")
+                code += """
+    for (int i = 0; i < M; ++i) {
+        for (int j = 0; j < N; ++j) {
+            C[i*N + j] = 0;
+            for (int k = 0; k < N; ++k) {
+                C[i*N + j] += A[i*N + k] * B[k*N + j];
+            }
+        }
+    }
+"""
+            else:
+                raise NotImplementedError(f"Unsupported operation type: {out.operations_type}")
         else:
-            raise NotImplementedError("Error")
-    
-    code.append("}")
+            raise ValueError("Expected an Operation instance in outputs")
 
-    return "\n".join(code)
+    code += "\n}"
+    return code
+
 
 
