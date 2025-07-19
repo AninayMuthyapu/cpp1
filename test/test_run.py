@@ -1,34 +1,46 @@
 from dsl.var import Var
-from dsl.runner import run  
+from dsl.runner import run
 from dsl.matrix import GeneralMatrix
 import numpy as np
-
+from dsl.utils import var_names
 
 M = Var("M")
 N = Var("N")
+P = Var("P")
 K = Var("K")
 
-A = GeneralMatrix((M, K))
-B = GeneralMatrix((K, N))
-C = A + B
-C.name = "C"
+A = GeneralMatrix((M, P))
+B = GeneralMatrix((M, N))
+C = GeneralMatrix((N, P))
+
+var_names(None, locals())
+
+Out = A + (B @ C)
 
 
 inputs = {
-    "A": np.random.rand(4, 4).astype(np.float32),
-    "B": np.random.rand(4, 4).astype(np.float32),
-    "M": 4,
-    "N": 4,
-    "K": 4
+    "A": np.random.rand(M, P).astype(np.float32), 
+    "B": np.random.rand(M, N).astype(np.float32),
+    "C": np.random.rand(N, P).astype(np.float32), 
+    "M": 32,
+    "N": 16,
+    "P": 24,
+    "K": 32,
 }
 
 
-result = run([C], inputs, backend="openblas")
-result2 = run([C], inputs, backend="cpp") 
-result3 = run([C], inputs, backend="numpy")
+result_numpy = run([Out], inputs, backend="numpy")
+Out_numpy = result_numpy[Out.name]
+
+print("\nComputed Out (NumPy):\n", Out_numpy)
+
+
+result_openblas = run([Out], inputs, backend="openblas")
+Out_openblas = result_openblas[Out.name]
 
 
 
-print("Computed C (OpenBLAS):\n", result["C"])
-print("Computed C cpp:\n", result2["C"])
-print("Computed C numpy:\n", result3["C"])
+result_cpp = run([Out], inputs, backend="cpp")
+Out_cpp = result_cpp[Out.name]
+print("Computed  (C++):\n", Out_cpp)
+
