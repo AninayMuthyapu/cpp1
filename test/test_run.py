@@ -19,9 +19,9 @@ Out = A + (B @ C)
 
 
 inputs = {
-    "A": np.random.rand(M, P).astype(np.float32), 
-    "B": np.random.rand(M, N).astype(np.float32),
-    "C": np.random.rand(N, P).astype(np.float32), 
+    "A": np.random.randint(0, 100, (M, P)).astype(np.float32), 
+    "B": np.random.randint(0, 100, (M, N)).astype(np.float32),
+    "C": np.random.randint(0, 100, (N, P)).astype(np.float32), 
     "M": 32,
     "N": 16,
     "P": 24,
