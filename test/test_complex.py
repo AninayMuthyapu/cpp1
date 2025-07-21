@@ -14,7 +14,7 @@ E = GeneralMatrix((M, N))
 
 var_names(None, locals())
 
-M_val = 32
+M_val = 128
 N_val = M_val
 
 inputs = {
@@ -51,6 +51,7 @@ def test_final_sub_op():
     D_intermediate = (C_intermediate @ B) + E
     F_out = D_intermediate - C_intermediate
     F_out.name = "F_result"
+
     res = run([F_out], inputs, backend="numpy")
     F_np = res[F_out.name]
     expected_C_intermediate = inputs["A"] + inputs["B"]
@@ -63,6 +64,7 @@ def test_final_sub_op2():
     D_intermediate = (C_intermediate @ B) + E
     F_out = D_intermediate - C_intermediate
     F_out.name = "F_result"
+
     res = run([F_out], inputs, backend="numpy")
     F_np = res[F_out.name]
     expected_C_intermediate = inputs["A"] + inputs["B"]
