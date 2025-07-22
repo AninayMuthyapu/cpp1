@@ -41,37 +41,36 @@ class Matrix:
                 f"dtype={self.dtype}, layout={self.layout}, name={self.name})")
 
 
-
 class GeneralMatrix(Matrix):
-    def __init__(self, shape, dtype="float", name=None): # Added name=None
-        super().__init__(shape, dtype, Layout.GENERAL, name=name) # Pass name to super()
+    def __init__(self, shape, dtype="float", name=None):
+        super().__init__(shape, dtype, Layout.GENERAL, name=name)
 
 class DiagonalMatrix(Matrix):
-    def __init__(self, shape, dtype="float", name=None): # Added name=None
+    def __init__(self, shape, dtype="float", name=None):
         if shape[0] != shape[1]:
             raise ValueError("DiagonalMatrix must be square")
-        super().__init__(shape, dtype, Layout.DIAGONAL, name=name) # Pass name to super()
+        super().__init__(shape, dtype, Layout.DIAGONAL, name=name)
 
 class UpperTriangularMatrix(Matrix):
-    def __init__(self, shape, dtype="float", name=None): # Added name=None
+    def __init__(self, shape, dtype="float", name=None):
         if shape[0] != shape[1]:
             raise ValueError("UpperTriangularMatrix must be square")
-        super().__init__(shape, dtype, Layout.UPPER_TRIANGULAR, name=name) # Pass name to super()
+        super().__init__(shape, dtype, Layout.UPPER_TRIANGULAR, name=name)
 
 class LowerTriangularMatrix(Matrix):
-    def __init__(self, shape, dtype="float", name=None): # Added name=None
+    def __init__(self, shape, dtype="float", name=None):
         if shape[0] != shape[1]:
             raise ValueError("LowerTriangularMatrix must be square")
-        super().__init__(shape, dtype, Layout.LOWER_TRIANGULAR, name=name) # Pass name to super()
+        super().__init__(shape, dtype, Layout.LOWER_TRIANGULAR, name=name)
 
 
 class SymmetricMatrix(Matrix):
-    def __init__(self, shape, dtype="float", name=None): # Added name=None
+    def __init__(self, shape, dtype="float", name=None):
         if shape[0] != shape[1]:
             raise ValueError("SymmetricMatrix must be square")
-        super().__init__(shape, dtype, Layout.SYMMETRIC, name=name) # Pass name to super()
+        super().__init__(shape, dtype, Layout.SYMMETRIC, name=name)
 
 
 class ToeplitzMatrix(Matrix):
-    def __init__(self, shape, dtype="float", name=None): # Added name=None
-        super().__init__(shape, dtype, Layout.TOEPLITZ, name=name) # Pass name to super()
+    def __init__(self, shape, dtype="float", name=None):
+        super().__init__(shape, dtype, Layout.TOEPLITZ, name=name)
