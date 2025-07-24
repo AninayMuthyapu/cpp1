@@ -15,7 +15,7 @@ def topological_sort_operations(output_nodes):
 
     def dfs_visit(node):
         if node in recursion_stack:
-            raise ValueError("Cycle detected in the DSL graph.")
+            raise ValueError("Cycle detected in the DSL graph. Topological sort is not possible.")
         if node in visited:
             return
         recursion_stack.add(node)
@@ -44,7 +44,7 @@ def topological_sort_operations(output_nodes):
     for op_node in sorted_unique_operations:
         if op_node not in visited:
             dfs_visit(op_node)
-    return sorted_list[::-1]
+    return sorted_list
 
 def get_graph_io(output_nodes):
     input_matrices = set()
