@@ -20,8 +20,10 @@ def compute_openblas(outputs):
 
     ops_sorted = topological_sort_operations(outputs)
     all_inputs, all_dims = get_graph_io(outputs)
-
     
+    ops_sorted = topological_sort_operations(outputs)
+    print("ops_sorted =", ops_sorted)          # <── add this
+
     all_inputs = sorted(all_inputs, key=lambda t: t.name)
     all_dims   = sorted(all_dims,   key=lambda d: d.name)
 
