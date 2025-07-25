@@ -7,95 +7,420 @@ from dsl.utils import var_names
 
 M = Var("M")
 N = Var("N")
-P = Var("P") 
+P = Var("P")
+K = Var("K")
 
 M_val = 128
 N_val = 64
 P_val = 32
+K_val = 96
 
 rtol = 1e-5
 atol = 1e-5
 
-def test_add_op_openblas():
-    
-
-    TempA = GeneralMatrix((M, N), name="TempA")
-    TempB = GeneralMatrix((M, N), name="TempB")
-    var_names(None, locals()) 
-
-    C_out = TempA + TempB
-    C_out.name = "C_result"
-
-    temp_inputs = {
-        "TempA": np.random.rand(M_val, N_val).astype(np.float32),
-        "TempB": np.random.rand(M_val, N_val).astype(np.float32),
-        "M": M_val,
-        "N": N_val,
-        "P": P_val,
-    }
-    
-    res = run([C_out], temp_inputs, backend="openblas")
-    C_openblas = res[C_out.name]
-
-    expected_C = temp_inputs["TempA"] + temp_inputs["TempB"]
-    
-   
-
-    assert np.allclose(C_openblas, expected_C, rtol=rtol, atol=atol)
-   
-def test_matmul_openblas():
-   
-
-    B_global = GeneralMatrix((M, N), name="B_global")
-    C_global = GeneralMatrix((N, P), name="C_global")
+def test_1():
+    A = GeneralMatrix((M, N), name="A")
+    B = GeneralMatrix((M, N), name="B")
     var_names(None, locals())
 
-    Out = B_global @ C_global
+    Out = A + B
     Out.name = "Out_result"
 
-    inputs_matmul = {
-        "B_global": np.random.rand(M_val, N_val).astype(np.float32),
-        "C_global": np.random.rand(N_val, P_val).astype(np.float32),
+    inputs = {
+        "A": np.random.rand(M_val, N_val).astype(np.float32),
+        "B": np.random.rand(M_val, N_val).astype(np.float32),
         "M": M_val,
         "N": N_val,
         "P": P_val,
+        "K": K_val,
     }
-
-    res = run([Out], inputs_matmul, backend="openblas")
-    Out_openblas = res[Out.name]
-
-    expected_Out = np.matmul(inputs_matmul["B_global"], inputs_matmul["C_global"])
-
-
-    assert np.allclose(Out_openblas, expected_Out, rtol=1e-05, atol=1e-05)
-
-
-def test_add_matmul_openblas():
     
-    A_global = GeneralMatrix((M, P), name="A_global")
-    B_global = GeneralMatrix((M, N), name="B_global")
-    C_global = GeneralMatrix((N, P), name="C_global")
+    res = run([Out], inputs, backend="openblas")
+    out_blas = res[Out.name]
+
+    expected_out = inputs["A"] + inputs["B"]
+    
+    assert np.allclose(out_blas, expected_out, rtol=rtol, atol=atol)
+
+
+def test_2():
+    B = GeneralMatrix((M, N), name="B")
+    C = GeneralMatrix((N, P), name="C")
     var_names(None, locals())
 
-    Out = A_global + (B_global @ C_global)
+    Out = B @ C
     Out.name = "Out_result"
 
-    inputs_add_matmul = {
-        "A_global": np.random.rand(M_val, P_val).astype(np.float32),
-        "B_global": np.random.rand(M_val, N_val).astype(np.float32),
-        "C_global": np.random.rand(N_val, P_val).astype(np.float32),
+    inputs = {
+        "B": np.random.rand(M_val, N_val).astype(np.float32),
+        "C": np.random.rand(N_val, P_val).astype(np.float32),
         "M": M_val,
         "N": N_val,
         "P": P_val,
+        "K": K_val,
     }
 
-    res = run([Out], inputs_add_matmul, backend="openblas")
-    Out_openblas = res[Out.name]
+    res = run([Out], inputs, backend="openblas")
+    out_blas = res[Out.name]
+
+    expected_out = np.matmul(inputs["B"], inputs["C"])
+
+    assert np.allclose(out_blas, expected_out, rtol=rtol, atol=atol)
+
+
+def test_3():
+    A = GeneralMatrix((M, P), name="A")
+    B = GeneralMatrix((M, N), name="B")
+    C = GeneralMatrix((N, P), name="C")
+    var_names(None, locals())
+
+    Out = A + (B @ C)
+    Out.name = "Out_result"
+
+    inputs = {
+        "A": np.random.rand(M_val, P_val).astype(np.float32),
+        "B": np.random.rand(M_val, N_val).astype(np.float32),
+        "C": np.random.rand(N_val, P_val).astype(np.float32),
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([Out], inputs, backend="openblas")
+    out_blas = res[Out.name]
     
-    expected_B_C = np.matmul(inputs_add_matmul["B_global"], inputs_add_matmul["C_global"])
-    expected_Out = inputs_add_matmul["A_global"] + expected_B_C
+    expected_out = inputs["A"] + (inputs["B"] @ inputs["C"])
+
+    assert np.allclose(out_blas, expected_out, rtol=rtol, atol=atol)
 
 
-    assert np.allclose(Out_openblas, expected_Out, rtol=rtol, atol=atol)
-    
+def test_4():
+    A = GeneralMatrix((M, K), name="A")
+    B = GeneralMatrix((K, N), name="B")
+    C = GeneralMatrix((M, N), name="C")
+    var_names(None, locals())
 
+    Out = (A @ B) - C
+    Out.name = "Out_result"
+
+    inputs = {
+        "A": np.random.rand(M_val, K_val).astype(np.float32),
+        "B": np.random.rand(K_val, N_val).astype(np.float32),
+        "C": np.random.rand(M_val, N_val).astype(np.float32),
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([Out], inputs, backend="openblas")
+    out_blas = res[Out.name]
+
+    expected_out = (inputs["A"] @ inputs["B"]) - inputs["C"]
+
+    assert np.allclose(out_blas, expected_out, rtol=rtol, atol=atol)
+
+
+def test_5():
+    A = GeneralMatrix((M, N), name="A")
+    B = GeneralMatrix((M, K), name="B")
+    C = GeneralMatrix((K, N), name="C")
+    D = GeneralMatrix((M, N), name="D")
+    E = GeneralMatrix((M, N), name="E")
+    var_names(None, locals())
+
+    Out = A + (B @ C) - (D + E)
+    Out.name = "Out_result"
+
+    inputs = {
+        "A": np.random.rand(M_val, N_val).astype(np.float32),
+        "B": np.random.rand(M_val, K_val).astype(np.float32),
+        "C": np.random.rand(K_val, N_val).astype(np.float32),
+        "D": np.random.rand(M_val, N_val).astype(np.float32),
+        "E": np.random.rand(M_val, N_val).astype(np.float32),
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([Out], inputs, backend="openblas")
+    out_blas = res[Out.name]
+
+    expected_out = inputs["A"] + (inputs["B"] @ inputs["C"]) - (inputs["D"] + inputs["E"])
+
+    assert np.allclose(out_blas, expected_out, rtol=rtol, atol=atol)
+
+
+def test_6():
+    A = GeneralMatrix((M, N), name="A")
+    B = GeneralMatrix((M, N), name="B")
+    C = GeneralMatrix((N, P), name="C")
+    D = GeneralMatrix((N, P), name="D")
+    var_names(None, locals())
+
+    Out = (A + B) @ (C - D)
+    Out.name = "Out_result"
+
+    inputs = {
+        "A": np.random.rand(M_val, N_val).astype(np.float32),
+        "B": np.random.rand(M_val, N_val).astype(np.float32),
+        "C": np.random.rand(N_val, P_val).astype(np.float32),
+        "D": np.random.rand(N_val, P_val).astype(np.float32),
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([Out], inputs, backend="openblas")
+    out_blas = res[Out.name]
+
+    expected_out = (inputs["A"] + inputs["B"]) @ (inputs["C"] - inputs["D"])
+
+    assert np.allclose(out_blas, expected_out, rtol=rtol, atol=atol)
+
+
+def test_7():
+    A = GeneralMatrix((M, K), name="A")
+    B = GeneralMatrix((K, N), name="B")
+    C = GeneralMatrix((M, P), name="C")
+    D = GeneralMatrix((P, N), name="D")
+    var_names(None, locals())
+
+    Out = (A @ B) + (C @ D)
+    Out.name = "Out_result"
+
+    inputs = {
+        "A": np.random.rand(M_val, K_val).astype(np.float32),
+        "B": np.random.rand(K_val, N_val).astype(np.float32),
+        "C": np.random.rand(M_val, P_val).astype(np.float32),
+        "D": np.random.rand(P_val, N_val).astype(np.float32),
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([Out], inputs, backend="openblas")
+    out_blas = res[Out.name]
+
+    expected_out = (inputs["A"] @ inputs["B"]) + (inputs["C"] @ inputs["D"])
+
+    assert np.allclose(out_blas, expected_out, rtol=rtol, atol=atol)
+
+
+def test_8():
+    A = GeneralMatrix((M, N), name="A")
+    B = GeneralMatrix((M, N), name="B")
+    C = GeneralMatrix((N, P), name="C")
+    D = GeneralMatrix((M, P), name="D")
+    E = GeneralMatrix((M, P), name="E")
+    var_names(None, locals())
+
+    Out = (A + B) @ C + D - E
+    Out.name = "Out_result"
+
+    inputs = {
+        "A": np.random.rand(M_val, N_val).astype(np.float32),
+        "B": np.random.rand(M_val, N_val).astype(np.float32),
+        "C": np.random.rand(N_val, P_val).astype(np.float32),
+        "D": np.random.rand(M_val, P_val).astype(np.float32),
+        "E": np.random.rand(M_val, P_val).astype(np.float32),
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([Out], inputs, backend="openblas")
+    out_blas = res[Out.name]
+
+    expected_out = ((inputs["A"] + inputs["B"]) @ inputs["C"]) + inputs["D"] - inputs["E"]
+
+    assert np.allclose(out_blas, expected_out, rtol=rtol, atol=atol)
+
+
+def test_9():
+    A = GeneralMatrix((M, K), name="A")
+    B = GeneralMatrix((K, N), name="B")
+    C = GeneralMatrix((M, P), name="C")
+    D = GeneralMatrix((P, N), name="D")
+    E = GeneralMatrix((M, N), name="E")
+    F = GeneralMatrix((M, N), name="F")
+    var_names(None, locals())
+
+    Out = (A @ B) + (C @ D) - (E + F)
+    Out.name = "Out_result"
+
+    inputs = {
+        "A": np.random.rand(M_val, K_val).astype(np.float32),
+        "B": np.random.rand(K_val, N_val).astype(np.float32),
+        "C": np.random.rand(M_val, P_val).astype(np.float32),
+        "D": np.random.rand(P_val, N_val).astype(np.float32),
+        "E": np.random.rand(M_val, N_val).astype(np.float32),
+        "F": np.random.rand(M_val, N_val).astype(np.float32),
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([Out], inputs, backend="openblas")
+    out_blas = res[Out.name]
+
+    expected_out = (inputs["A"] @ inputs["B"]) + \
+                   (inputs["C"] @ inputs["D"]) - \
+                   (inputs["E"] + inputs["F"])
+
+    assert np.allclose(out_blas, expected_out, rtol=rtol, atol=atol)
+
+
+def test_10():
+    A = GeneralMatrix((M, N), name="A")
+    B = GeneralMatrix((M, N), name="B")
+    C = GeneralMatrix((N, P), name="C")
+    D = GeneralMatrix((M, K), name="D")
+    E = GeneralMatrix((K, P), name="E")
+    F = GeneralMatrix((M, P), name="F")
+    var_names(None, locals())
+
+    Out = ((A + B) @ C) - (D @ E) + F
+    Out.name = "Out_result"
+
+    inputs = {
+        "A": np.random.rand(M_val, N_val).astype(np.float32),
+        "B": np.random.rand(M_val, N_val).astype(np.float32),
+        "C": np.random.rand(N_val, P_val).astype(np.float32),
+        "D": np.random.rand(M_val, K_val).astype(np.float32),
+        "E": np.random.rand(K_val, P_val).astype(np.float32),
+        "F": np.random.rand(M_val, P_val).astype(np.float32),
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([Out], inputs, backend="openblas")
+    out_blas = res[Out.name]
+
+    expected_out = ((inputs["A"] + inputs["B"]) @ inputs["C"]) - \
+                   (inputs["D"] @ inputs["E"]) + \
+                   inputs["F"]
+
+    assert np.allclose(out_blas, expected_out, rtol=rtol, atol=atol)
+
+
+def test_11():
+    A = GeneralMatrix((M, N), name="A")
+    B = GeneralMatrix((M, N), name="B")
+    C = GeneralMatrix((N, P), name="C")
+    D = GeneralMatrix((M, P), name="D")
+    E = GeneralMatrix((M, P), name="E")
+    F = GeneralMatrix((P, K), name="F")
+    G = GeneralMatrix((M, K), name="G")
+    H = GeneralMatrix((M, K), name="H")
+    I = GeneralMatrix((M, K), name="I")
+    var_names(None, locals())
+
+    Out = (((A + B) @ C) - (D + E)) @ F + G - H + I
+    Out.name = "Out_result"
+
+    inputs = {
+        "A": np.random.rand(M_val, N_val).astype(np.float32),
+        "B": np.random.rand(M_val, N_val).astype(np.float32),
+        "C": np.random.rand(N_val, P_val).astype(np.float32),
+        "D": np.random.rand(M_val, P_val).astype(np.float32),
+        "E": np.random.rand(M_val, P_val).astype(np.float32),
+        "F": np.random.rand(P_val, K_val).astype(np.float32),
+        "G": np.random.rand(M_val, K_val).astype(np.float32),
+        "H": np.random.rand(M_val, K_val).astype(np.float32),
+        "I": np.random.rand(M_val, K_val).astype(np.float32),
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([Out], inputs, backend="openblas")
+    out_blas = res[Out.name]
+
+    expected_out = (((inputs["A"] + inputs["B"]) @ inputs["C"]) - \
+                   (inputs["D"] + inputs["E"])) @ inputs["F"] + \
+                   inputs["G"] - inputs["H"] + inputs["I"]
+
+    assert np.allclose(out_blas, expected_out, rtol=rtol, atol=atol)
+
+
+def test_12():
+    A = GeneralMatrix((M, K), name="A")
+    B = GeneralMatrix((K, N), name="B")
+    C = GeneralMatrix((M, K), name="C")
+    D = GeneralMatrix((K, N), name="D")
+    E = GeneralMatrix((M, K), name="E")
+    F = GeneralMatrix((K, N), name="F")
+    G = GeneralMatrix((N, P), name="G")
+    H = GeneralMatrix((M, P), name="H")
+    I = GeneralMatrix((M, P), name="I")
+    J = GeneralMatrix((M, P), name="J")
+    var_names(None, locals())
+
+    Out = ((((A @ B) + (C @ D)) - (E @ F)) @ G) + H - I + J
+    Out.name = "Out_result"
+
+    inputs = {
+        "A": np.random.rand(M_val, K_val).astype(np.float32),
+        "B": np.random.rand(K_val, N_val).astype(np.float32),
+        "C": np.random.rand(M_val, K_val).astype(np.float32),
+        "D": np.random.rand(K_val, N_val).astype(np.float32),
+        "E": np.random.rand(M_val, K_val).astype(np.float32),
+        "F": np.random.rand(K_val, N_val).astype(np.float32),
+        "G": np.random.rand(N_val, P_val).astype(np.float32),
+        "H": np.random.rand(M_val, P_val).astype(np.float32),
+        "I": np.random.rand(M_val, P_val).astype(np.float32),
+        "J": np.random.rand(M_val, P_val).astype(np.float32),
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([Out], inputs, backend="openblas")
+    out_blas = res[Out.name]
+
+    expected_out = ((((inputs["A"] @ inputs["B"]) + \
+                      (inputs["C"] @ inputs["D"])) - \
+                     (inputs["E"] @ inputs["F"])) @ inputs["G"]) + \
+                   inputs["H"] - inputs["I"] + inputs["J"]
+
+    assert np.allclose(out_blas, expected_out, rtol=rtol, atol=atol)
+
+# from dsl.var import Var
+# from dsl.matrix import GeneralMatrix
+# from dsl.utils import topological_sort_operations, var_names
+
+# # Define symbolic variables for matrix shapes
+# M = Var("M")
+# N = Var("N")
+# P = Var("P")
+
+# # Define input matrices
+# A_global = GeneralMatrix((M, P), name="A_global")
+# B_global = GeneralMatrix((M, N), name="B_global")
+# C_global = GeneralMatrix((N, P), name="C_global")
+
+# # Assign names to symbolic matrices from the local scope.
+# var_names(None, locals())
+
+# # Define the DSL expression directly in one line
+# # The (B_global @ C_global) part will implicitly create a MatMul Operation object.
+# Out = A_global + (B_global @ C_global)
+# Out.name = "Out_Result" # Name the final output operation
+
+# # Perform topological sort on the final output node
+# sorted_ops = topological_sort_operations([Out])
+
+# print("Topologically Sorted Operations for 'Out = A_global + (B_global @ C_global)' (direct expression):")
+# for op in sorted_ops:
+#     print(f"- {op.name} (Type: {op.operations_type})")
