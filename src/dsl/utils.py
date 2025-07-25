@@ -15,7 +15,7 @@ def topological_sort_operations(output_nodes):
 
     def dfs_visit(node):
         if node in recursion_stack:
-            raise ValueError("Cycle detected in the DSL graph. Topological sort is not possible.")
+            raise ValueError("Cycle detected in the DSL graph. ")
         if node in visited:
             return
         recursion_stack.add(node)
