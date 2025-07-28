@@ -395,3 +395,277 @@ def test_12():
                    inputs_complex_expr_8["H"] - inputs_complex_expr_8["I"] + inputs_complex_expr_8["J"]
 
     assert np.allclose(Out_cpp, expected_Out, rtol=rtol, atol=atol)
+
+
+def test_13():
+    A_t13 = GeneralMatrix((N, N), name="A_t13")
+    B_t13 = GeneralMatrix((N, N), name="B_t13") 
+    
+    C_dsl = A_t13 + B_t13
+    D_dsl = C_dsl @ B_t13
+    F_dsl = D_dsl - A_t13
+    G_dsl = F_dsl + C_dsl
+    E_out = G_dsl @ B_t13
+    E_out.name = "E_result"
+    var_names(None, locals())
+
+    inputs_t13 = {
+        "A_t13": np.random.rand(N_val, N_val).astype(np.float32),
+        "B_t13": np.random.rand(N_val, N_val).astype(np.float32), 
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([E_out], inputs_t13, backend="cpp")
+    E_cpp = res[E_out.name]
+
+    A_np = inputs_t13["A_t13"]
+    B_np = inputs_t13["B_t13"]
+    
+    C_np = A_np + B_np
+    D_np = np.matmul(C_np, B_np)
+    F_np = D_np - A_np
+    G_np = F_np + C_np
+    expected_E = np.matmul(G_np, B_np)
+
+    assert np.allclose(E_cpp, expected_E, rtol=rtol, atol=atol)
+
+def test_14():
+    M_val_14 = M_val
+    N_val_14 = N_val
+    P_val_14 = N_val
+    K_val_14 = K_val
+
+    A_t14 = GeneralMatrix((M, N), name="A_t14")
+    B_t14 = GeneralMatrix((M, N), name="B_t14")
+    C_t14 = GeneralMatrix((N, P), name="C_t14")
+    D_t14 = GeneralMatrix((M, P), name="D_t14")
+    
+
+    Op1 = A_t14 + B_t14
+    Op2 = Op1 @ C_t14
+    Op3 = Op2 - D_t14
+    Out = Op3 + Op2
+    Out.name = "Out_result_14"
+    var_names(None, locals())
+
+    inputs_t14 = {
+        "A_t14": np.random.rand(M_val_14, N_val_14).astype(np.float32),
+        "B_t14": np.random.rand(M_val_14, N_val_14).astype(np.float32),
+        "C_t14": np.random.rand(N_val_14, P_val_14).astype(np.float32),
+        "D_t14": np.random.rand(M_val_14, P_val_14).astype(np.float32),
+        "M": M_val_14,
+        "N": N_val_14,
+        "P": P_val_14,
+        "K": K_val_14,
+    }
+
+    res = run([Out], inputs_t14, backend="cpp")
+    out_cpp = res[Out.name]
+
+    A_np = inputs_t14["A_t14"]
+    B_np = inputs_t14["B_t14"]
+    C_np = inputs_t14["C_t14"]
+    D_np = inputs_t14["D_t14"]
+
+    Op1_np = A_np + B_np
+    Op2_np = np.matmul(Op1_np, C_np)
+    Op3_np = Op2_np - D_np
+    expected_out = Op3_np + Op2_np
+
+    assert np.allclose(out_cpp, expected_out, rtol=rtol, atol=atol)
+
+def test_15():
+    A_t15 = GeneralMatrix((M, K), name="A_t15")
+    B_t15 = GeneralMatrix((K, N), name="B_t15")
+    C_t15 = GeneralMatrix((M, P), name="C_t15")
+    D_t15 = GeneralMatrix((P, N), name="D_t15")
+    E_t15 = GeneralMatrix((M, N), name="E_t15")
+    F_t15 = GeneralMatrix((M, N), name="F_t15")
+    G_t15 = GeneralMatrix((M, N), name="G_t15")
+    
+
+    Op1 = A_t15 @ B_t15
+    Op2 = C_t15 @ D_t15
+    Op3 = E_t15 + F_t15
+    
+    Out = Op1 + Op2 - Op3 + G_t15
+    Out.name = "Out_result_15"
+    var_names(None, locals())
+
+    inputs_t15 = {
+        "A_t15": np.random.rand(M_val, K_val).astype(np.float32),
+        "B_t15": np.random.rand(K_val, N_val).astype(np.float32),
+        "C_t15": np.random.rand(M_val, P_val).astype(np.float32),
+        "D_t15": np.random.rand(P_val, N_val).astype(np.float32),
+        "E_t15": np.random.rand(M_val, N_val).astype(np.float32),
+        "F_t15": np.random.rand(M_val, N_val).astype(np.float32),
+        "G_t15": np.random.rand(M_val, N_val).astype(np.float32),
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([Out], inputs_t15, backend="cpp")
+    out_cpp = res[Out.name]
+
+    A_np = inputs_t15["A_t15"]
+    B_np = inputs_t15["B_t15"]
+    C_np = inputs_t15["C_t15"]
+    D_np = inputs_t15["D_t15"]
+    E_np = inputs_t15["E_t15"]
+    F_np = inputs_t15["F_t15"]
+    G_np = inputs_t15["G_t15"]
+
+    Op1_np = np.matmul(A_np, B_np)
+    Op2_np = np.matmul(C_np, D_np)
+    Op3_np = E_np + F_np
+    
+    expected_out = Op1_np + Op2_np - Op3_np + G_np
+
+    assert np.allclose(out_cpp, expected_out, rtol=rtol, atol=atol)
+
+def test_16():
+    A_t16 = GeneralMatrix((N, N), name="A_t16")
+    B_t16 = GeneralMatrix((N, N), name="B_t16")
+    C_t16 = GeneralMatrix((N, N), name="C_t16")
+    D_t16 = GeneralMatrix((N, N), name="D_t16")
+    E_t16 = GeneralMatrix((N, N), name="E_t16")
+    
+
+    Op1 = A_t16 + (B_t16 @ C_t16)
+    Op2 = (Op1 @ Op1) + D_t16
+    Out = (Op2 @ Op1) - E_t16
+    Out.name = "Out_result_16"
+    var_names(None, locals())
+
+    inputs_t16 = {
+        "A_t16": np.random.rand(N_val, N_val).astype(np.float32),
+        "B_t16": np.random.rand(N_val, N_val).astype(np.float32),
+        "C_t16": np.random.rand(N_val, N_val).astype(np.float32),
+        "D_t16": np.random.rand(N_val, N_val).astype(np.float32),
+        "E_t16": np.random.rand(N_val, N_val).astype(np.float32),
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([Out], inputs_t16, backend="cpp")
+    out_cpp = res[Out.name]
+
+    A_np = inputs_t16["A_t16"]
+    B_np = inputs_t16["B_t16"]
+    C_np = inputs_t16["C_t16"]
+    D_np = inputs_t16["D_t16"]
+    E_np = inputs_t16["E_t16"]
+
+    Op1_np = A_np + np.matmul(B_np, C_np)
+    Op2_np = np.matmul(Op1_np, Op1_np) + D_np
+    expected_out = np.matmul(Op2_np, Op1_np) - E_np
+
+    assert np.allclose(out_cpp, expected_out, rtol=rtol, atol=atol)
+
+def test_17():
+    A_t17 = GeneralMatrix((N, N), name="A_t17")
+    B_t17 = GeneralMatrix((N, N), name="B_t17")
+    C_t17 = GeneralMatrix((N, N), name="C_t17")
+    D_t17 = GeneralMatrix((N, N), name="D_t17")
+    E_t17 = GeneralMatrix((N, N), name="E_t17")
+    F_t17 = GeneralMatrix((N, N), name="F_t17")
+    G_t17 = GeneralMatrix((N, N), name="G_t17")
+    H_t17 = GeneralMatrix((N, N), name="H_t17")
+    
+
+    Op1_intermediate = (A_t17 @ B_t17) + (C_t17 - D_t17)
+    Op2_intermediate = (Op1_intermediate @ E_t17) - (F_t17 + G_t17)
+    Out = Op2_intermediate + (Op1_intermediate @ H_t17)
+    Out.name = "Out_result_17"
+    var_names(None, locals())
+
+    inputs_t17 = {
+        "A_t17": np.random.rand(N_val, N_val).astype(np.float32),
+        "B_t17": np.random.rand(N_val, N_val).astype(np.float32),
+        "C_t17": np.random.rand(N_val, N_val).astype(np.float32),
+        "D_t17": np.random.rand(N_val, N_val).astype(np.float32),
+        "E_t17": np.random.rand(N_val, N_val).astype(np.float32),
+        "F_t17": np.random.rand(N_val, N_val).astype(np.float32),
+        "G_t17": np.random.rand(N_val, N_val).astype(np.float32),
+        "H_t17": np.random.rand(N_val, N_val).astype(np.float32),
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([Out], inputs_t17, backend="cpp")
+    out_cpp = res[Out.name]
+
+    A_np = inputs_t17["A_t17"]
+    B_np = inputs_t17["B_t17"]
+    C_np = inputs_t17["C_t17"]
+    D_np = inputs_t17["D_t17"]
+    E_np = inputs_t17["E_t17"]
+    F_np = inputs_t17["F_t17"]
+    G_np = inputs_t17["G_t17"]
+    H_np = inputs_t17["H_t17"]
+
+    Op1_intermediate_np = np.matmul(A_np, B_np) + (C_np - D_np)
+    Op2_intermediate_np = np.matmul(Op1_intermediate_np, E_np) - (F_np + G_np)
+    expected_out = Op2_intermediate_np + np.matmul(Op1_intermediate_np, H_np)
+
+    assert np.allclose(out_cpp, expected_out, rtol=rtol, atol=atol)
+
+def test_18():
+    A_t18 = GeneralMatrix((M, K), name="A_t18")
+    B_t18 = GeneralMatrix((K, N), name="B_t18")
+    C_t18 = GeneralMatrix((M, N), name="C_t18")
+    D_t18 = GeneralMatrix((M, N), name="D_t18")
+    E_t18 = GeneralMatrix((N, P), name="E_t18")
+    F_t18 = GeneralMatrix((M, P), name="F_t18")
+    G_t18 = GeneralMatrix((M, P), name="G_t18")
+    
+
+    Op1 = A_t18 @ B_t18
+    Op2 = C_t18 + D_t18
+    Op3 = Op1 - Op2
+    Op4 = Op3 @ E_t18
+    Out = Op4 + F_t18 - G_t18
+    Out.name = "Out_result_18"
+    var_names(None, locals())
+
+    inputs_t18 = {
+        "A_t18": np.random.rand(M_val, K_val).astype(np.float32),
+        "B_t18": np.random.rand(K_val, N_val).astype(np.float32),
+        "C_t18": np.random.rand(M_val, N_val).astype(np.float32),
+        "D_t18": np.random.rand(M_val, N_val).astype(np.float32),
+        "E_t18": np.random.rand(N_val, P_val).astype(np.float32),
+        "F_t18": np.random.rand(M_val, P_val).astype(np.float32),
+        "G_t18": np.random.rand(M_val, P_val).astype(np.float32),
+        "M": M_val,
+        "N": N_val,
+        "P": P_val,
+        "K": K_val,
+    }
+
+    res = run([Out], inputs_t18, backend="cpp")
+    out_cpp = res[Out.name]
+
+    A_np = inputs_t18["A_t18"]
+    B_np = inputs_t18["B_t18"]
+    C_np = inputs_t18["C_t18"]
+    D_np = inputs_t18["D_t18"]
+    E_np = inputs_t18["E_t18"]
+    F_np = inputs_t18["F_t18"]
+    G_np = inputs_t18["G_t18"]
+
+    Op1_np = np.matmul(A_np, B_np)
+    Op2_np = C_np + D_np
+    Op3_np = Op1_np - Op2_np
+    Op4_np = np.matmul(Op3_np, E_np)
+    expected_out = Op4_np + F_np - G_np
+
+    assert np.allclose(out_cpp, expected_out, rtol=rtol, atol=atol)
