@@ -74,7 +74,7 @@ def compute_optimized(outputs):
 
 void add_op(float* out, const float* a, const float* b, long long size) {{
     #pragma omp parallel for    
-    long long avx_size=size / 8 * 8;
+    
     for (long long i = 0; i < size; i += avx_size) {{
         __m256 a_vec = _mm256_loadu_ps(a + i);
         __m256 b_vec = _mm256_loadu_ps(b + i);
@@ -86,10 +86,10 @@ void add_op(float* out, const float* a, const float* b, long long size) {{
      }}  
 
 void sub_op(float* out, const float* a, const float* b, long long size) {{
-    long long avx_size = (size / 8) * 8;
+    
 
     #pragma omp parallel for
-    for (long long i = 0; i < avx_size; i += 8) {{
+    for (long long i = 0; i < size; i += 8) {{
         __m256 a_vec = _mm256_loadu_ps(&a[i]);
         __m256 b_vec = _mm256_loadu_ps(&b[i]);
         __m256 c_vec = _mm256_sub_ps(a_vec, b_vec);
