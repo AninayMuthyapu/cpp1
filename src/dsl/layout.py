@@ -2,7 +2,13 @@ from enum import Enum
 
 class LayoutError(Exception):
     pass
+class DType(Enum):
+    
+    float = 1
+    int = 2
+    double = 3
 
+    
 class Layout(Enum):
     AUXILIARY = "auxiliary"
     SCALER = "scaler"
