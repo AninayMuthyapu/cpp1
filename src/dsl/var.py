@@ -1,11 +1,10 @@
-# dsl/var.py
 
 class Expression:
-    """A base class for all symbolic expressions."""
+    
     pass
 
 class Comparison(Expression):
-    """Represents a symbolic comparison (e.g., i <= j)."""
+    
     def __init__(self, left, op, right):
         self.left = left
         self.op = op
@@ -21,10 +20,7 @@ class Comparison(Expression):
                 self.right == other.right)
 
 class Var(Expression):
-    """
-    Represents a symbolic variable, like 'i', 'j', or 'N'.
-    This class overloads operators to build symbolic expression trees.
-    """
+    
     def __init__(self, name):
         self.name = name
 
@@ -37,23 +33,19 @@ class Var(Expression):
     def __hash__(self):
         return hash(self.name)
 
-    # SYMBOLIC ARITHMETIC OPERATORS
+    
     def __add__(self, other):
         return ArithmeticExpression(self, '+', other)
     
     def __sub__(self, other):
         return ArithmeticExpression(self, '-', other)
 
-    def __rsub__(self, other):
-        # Handle cases like `5 - x`
-        return ArithmeticExpression(other, '-', self)
+    
 
     def __mul__(self, other):
         return ArithmeticExpression(self, '*', other)
 
-    def __truediv__(self, other):
-        return ArithmeticExpression(self, '/', other)
-
+    
     def __getitem__(self, index):
         return ArithmeticExpression(self, 'subscript', index)
 
@@ -61,7 +53,7 @@ class Var(Expression):
         # Unary minus operator
         return ArithmeticExpression(self, '-', None)
 
-    # SYMBOLIC COMPARISON OPERATORS
+    
     def __lt__(self, other):
         return Comparison(self, '<', other)
 
@@ -78,7 +70,7 @@ class Var(Expression):
         return Comparison(self, '==', other)
 
 class ArithmeticExpression(Expression):
-    """Represents a symbolic arithmetic expression."""
+    
     def __init__(self, left, op, right):
         self.left = left
         self.op = op
@@ -127,7 +119,7 @@ class ArithmeticExpression(Expression):
         return Comparison(self, '!=', other)
 
 class Conditional(Expression):
-    """Represents a symbolic if-else expression."""
+    
     def __init__(self, condition, true_value, false_value):
         self.condition = condition
         self.true_value = true_value
