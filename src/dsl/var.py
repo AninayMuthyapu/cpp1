@@ -49,9 +49,7 @@ class Var(Expression):
     def __getitem__(self, index):
         return ArithmeticExpression(self, 'subscript', index)
 
-    def __neg__(self):
-        # Unary minus operator
-        return ArithmeticExpression(self, '-', None)
+    
 
     
     def __lt__(self, other):
