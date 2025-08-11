@@ -1,73 +1,137 @@
+# dsl/var.py
+
 class Expression:
-    
-    def __add__(self, other):
-        return ArithmeticExpression('+', self, other)
+    """A base class for all symbolic expressions."""
+    pass
 
-    def __sub__(self, other):
-        return ArithmeticExpression('-', self, other)
-
-
-class ArithmeticExpression(Expression):
-    def __init__(self,op,left,right):
-        if op not in ['+', '-']:
-            raise ValueError(f"Unsupported operator")
-        self.op = op
+class Comparison(Expression):
+    """Represents a symbolic comparison (e.g., i <= j)."""
+    def __init__(self, left, op, right):
         self.left = left
+        self.op = op
         self.right = right
 
     def __repr__(self):
-        return f"ArithmeticExpression({self.op}, {self.left}, {self.right})"
-    
+        return f"Comparison({self.left}, '{self.op}', {self.right})"
+
     def __eq__(self, other):
-        if not isinstance(other, ArithmeticExpression):
-            return NotImplemented
-        return (self.op == other.op and
+        return (isinstance(other, Comparison) and
+                self.op == other.op and
                 self.left == other.left and
                 self.right == other.right)
-        
 
-            
 class Var(Expression):
+    """
+    Represents a symbolic variable, like 'i', 'j', or 'N'.
+    This class overloads operators to build symbolic expression trees.
+    """
     def __init__(self, name):
         self.name = name
 
     def __repr__(self):
-        return f"Var({self.name})"
+        return f"Var('{self.name}')"
 
     def __eq__(self, other):
-       
         return isinstance(other, Var) and self.name == other.name
 
     def __hash__(self):
-        
         return hash(self.name)
-    
 
-class Conditional(Var):
-    conditional_counter=0
-    def __init__(self,condition,true_value,false_value,name=None):
-        if not isinstance(condition,( Expression,bool)):
-            raise TypeError("Condition must be an Expression")
+    # SYMBOLIC ARITHMETIC OPERATORS
+    def __add__(self, other):
+        return ArithmeticExpression(self, '+', other)
+    
+    def __sub__(self, other):
+        return ArithmeticExpression(self, '-', other)
+
+    def __rsub__(self, other):
+        # Handle cases like `5 - x`
+        return ArithmeticExpression(other, '-', self)
+
+    def __mul__(self, other):
+        return ArithmeticExpression(self, '*', other)
+
+    def __truediv__(self, other):
+        return ArithmeticExpression(self, '/', other)
+
+    def __getitem__(self, index):
+        return ArithmeticExpression(self, 'subscript', index)
+
+    def __neg__(self):
+        # Unary minus operator
+        return ArithmeticExpression(self, '-', None)
+
+    # SYMBOLIC COMPARISON OPERATORS
+    def __lt__(self, other):
+        return Comparison(self, '<', other)
+
+    def __le__(self, other):
+        return Comparison(self, '<=', other)
+
+    def __gt__(self, other):
+        return Comparison(self, '>', other)
+
+    def __ge__(self, other):
+        return Comparison(self, '>=', other)
         
+    def __eq__(self, other):
+        return Comparison(self, '==', other)
+
+class ArithmeticExpression(Expression):
+    """Represents a symbolic arithmetic expression."""
+    def __init__(self, left, op, right):
+        self.left = left
+        self.op = op
+        self.right = right
+    
+    def __repr__(self):
+        if self.op == 'subscript':
+            return f"{self.left}[{self.right}]"
+        if self.op == '-':
+            if self.right is None:
+                return f"-{self.left}"
+            return f"({self.left} {self.op} {self.right})"
+        return f"({self.left} {self.op} {self.right})"
+        
+    def __add__(self, other):
+        return ArithmeticExpression(self, '+', other)
+    
+    def __sub__(self, other):
+        return ArithmeticExpression(self, '-', other)
+
+    def __mul__(self, other):
+        return ArithmeticExpression(self, '*', other)
+
+    def __truediv__(self, other):
+        return ArithmeticExpression(self, '/', other)
+
+    def __getitem__(self, index):
+        return ArithmeticExpression(self, 'subscript', index)
+    
+    def __lt__(self, other):
+        return Comparison(self, '<', other)
+
+    def __le__(self, other):
+        return Comparison(self, '<=', other)
+
+    def __gt__(self, other):
+        return Comparison(self, '>', other)
+
+    def __ge__(self, other):
+        return Comparison(self, '>=', other)
+
+    def __eq__(self, other):
+        return Comparison(self, '==', other)
+
+    def __ne__(self, other):
+        return Comparison(self, '!=', other)
+
+class Conditional(Expression):
+    """Represents a symbolic if-else expression."""
+    def __init__(self, condition, true_value, false_value):
+        self.condition = condition
         self.true_value = true_value
         self.false_value = false_value
-        self.name = name
-        if name is None:
-            name =f"conditional_expr_{Conditional.conditional_counter}"
-            Conditional.conditional_counter += 1
-
-        super().__init__(name)
-        self.condition= condition
 
     def __repr__(self):
-        return (f"conditional(if {self.condition} then {repr(self.true_value)} "
-                f"else {repr(self.false_value)},name={self.name})")
-    def __eq__(self, other):
-        if not isinstance(other, Conditional):
-            return NotImplemented
-        return (self.condition == other.condition and
-                self.true_value == other.true_value and
-                self.false_value == other.false_value and
-                self.name == other.name)
-    def __hash__(self):
-        return hash((self.condition, self.true_value, self.false_value, self.name))
+        return (f"({self.condition} ? {self.true_value} : {self.false_value})")
