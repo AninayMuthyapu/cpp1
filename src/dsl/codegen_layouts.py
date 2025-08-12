@@ -1,4 +1,4 @@
-import logging
+
 from .var import Expression, Var, Comparison, ArithmeticExpression, Conditional
 from .matrix import GeneralMatrix, UpperTriangularMatrix, DiagonalMatrix, LowerTriangularMatrix 
 
