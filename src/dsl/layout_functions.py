@@ -66,3 +66,115 @@ def toeplitz_layout(i, j, data_arr):
     array_index_offset = ArithmeticExpression(N, '-', 1)
     array_index = ArithmeticExpression(diagonal_offset, '+', array_index_offset)
     return data_arr[array_index]
+
+
+
+
+
+
+
+
+# from .var import Conditional, Var, ArithmeticExpression, Comparison
+
+
+
+
+
+
+
+
+
+# N = Var('N')
+
+
+
+
+
+# def general_layout(i, j, data_arr):
+
+
+    
+
+
+#     return data_arr[ArithmeticExpression(ArithmeticExpression(i, '*', N), '+', j)]
+
+
+
+
+
+
+
+
+# def upper_triangular_layout(i, j, data_arr):
+
+
+    
+
+
+#     return Conditional(
+
+
+#         Comparison(i, "<=", j),
+
+
+#         data_arr[ArithmeticExpression(ArithmeticExpression(i, '*', N), '+', j)],
+
+
+#         0
+
+
+#     )
+
+
+
+
+
+
+
+
+# def lower_triangular_layout(i, j, data_arr):
+
+
+    
+
+
+#     return Conditional(
+
+
+#         Comparison(i, ">=", j),
+
+
+#         data_arr[ArithmeticExpression(ArithmeticExpression(i, '*', N), '+', j)],
+
+
+#         0
+
+
+#     )
+
+
+
+
+
+
+
+
+# def diagonal_layout(i, j, data_arr):
+
+
+    
+
+
+#     mul_expr = ArithmeticExpression(i, '*', N)
+
+
+#     index_expr = ArithmeticExpression(mul_expr, '+', i)
+
+
+    
+
+
+    
+
+
+#     return Conditional(
