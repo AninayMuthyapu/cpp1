@@ -2,302 +2,176 @@ import subprocess
 import numpy as np
 import ctypes
 import os
+import tempfile
+
 from dsl.codegen_openblas import compute_openblas
 from dsl.codegen import generate_cpp_code
 from dsl.codegen_numpy import compute_numpy
-from dsl.var import Var
-from dsl.matrix import Matrix 
-from dsl.utils import get_graph_io, topological_sort_operations
+from dsl.codegen_cpp_optimized import compute_optimized
+from dsl.codegen_special import generate_special_cpp
+
+from dsl.matrix import Matrix, DiagonalMatrix, UpperTriangularMatrix, LowerTriangularMatrix, ToeplitzMatrix
 from dsl.operations import Operation
+from dsl.var import Var
+from dsl.utils import get_graph_io, topological_sort_operations
 
 def get_shape(shape_tuple, in_data):
-    res = []
+    real_shape = []
     for dim in shape_tuple:
         if isinstance(dim, Var):
             if dim.name not in in_data:
-                raise ValueError(f"Dim '{dim.name}' not in inputs.")
-            res.append(in_data[dim.name])
+                raise ValueError(f"Dimension '{dim.name}' missing. Add it to inputs.")
+            real_shape.append(in_data[dim.name])
         elif isinstance(dim, int):
-            res.append(dim)
+            real_shape.append(dim)
         else:
-            raise TypeError(f"Invalid dim type: {type(dim)}. Expected Var or int.")
-    return tuple(res)
+            raise TypeError(f" Needs Var or int.")
+    return tuple(real_shape)
 
-def run(outs, inputs, backend="openblas"):
+def run(outs, inputs, backend="openblas", out_matrix_obj=None): 
     if not outs:
         return {}
 
     if backend == "numpy":
-        np_eval_func = compute_numpy(outs)
-        return np_eval_func(inputs)
+        np_func = compute_numpy(outs)
+        return np_func(inputs)
 
-    elif backend in ["cpp", "openblas"]:
-        cpp_code = ""
-        comp_cmd = []
-        c_func_name = "" 
-        ordered_c_func_arg_names = []
+    gen_cpp_code = ""
+    func_name = ""
+    arg_names_ordered = []
+    compiler_flags = []
+    backend_label = ""
 
-        if backend == "cpp":
-            cpp_code, c_func_name, ordered_c_func_arg_names = generate_cpp_code(outs)
-        elif backend == "openblas":
-            cpp_code, c_func_name, ordered_c_func_arg_names = compute_openblas(outs)
-        
-        cpp_path = f"gen_{c_func_name}.cpp"
-        so_path = f"gen_{c_func_name}.so"
+    actual_out_matrix = out_matrix_obj if out_matrix_obj else outs[0]
 
-        if backend == "cpp":
-            comp_cmd = [
-                "/usr/bin/g++",
-                "-O3", "-std=c++17", "-fPIC", "-shared",
-                cpp_path, "-o", so_path
-            ]
-        elif backend == "openblas":
-            comp_cmd = [
-                "/usr/bin/g++",
-                "-O3", "-std=c++17", "-fPIC", "-shared",
-                "-I", "/usr/include/x86_64-linux-gnu",
-                cpp_path, "-o", so_path,
-                "-L", "/usr/lib/x86_64-linux-gnu",
-                "-lopenblas"
-            ]
+    if backend == "cpp_avx":
+        gen_cpp_code, func_name, arg_names_ordered = compute_optimized(outs, actual_out_matrix) 
+        backend_label = "cpp_avx"
+        compiler_flags = [
+            "g++", "-O3", "-std=c++17", "-fPIC", "-shared", "-fopenmp", "-march=native",
+            "TEMP_CPP_PATH", "-o", "TEMP_SO_PATH"
+        ]
+    elif backend == "cpp":
+        gen_cpp_code, func_name, arg_names_ordered = generate_cpp_code(outs, actual_out_matrix) 
+        backend_label = "cpp"
+        compiler_flags = [
+            "g++", "-O3", "-std=c++17", "-fPIC", "-shared",
+            "TEMP_CPP_PATH", "-o", "TEMP_SO_PATH"
+        ]
+    elif backend == "openblas":
+        gen_cpp_code, func_name, arg_names_ordered = compute_openblas(outs, actual_out_matrix) 
+        backend_label = "openblas"
+        compiler_flags = [
+            "g++", "-O3", "-std=c++17", "-fPIC", "-shared",
+            "-I", "/usr/include/x86_64-linux-gnu",
+            "TEMP_CPP_PATH", "-o", "TEMP_SO_PATH",
+            "-L", "/usr/lib/x86_64-linux-gnu",
+            "-lopenblas"
+        ]
+    elif backend == "special":
+        gen_cpp_code, func_name, arg_names_ordered = generate_special_cpp(outs, actual_out_matrix) 
+        backend_label = "special"
+        compiler_flags = [
+            "g++", "-O3", "-std=c++17", "-fPIC", "-shared",
+            "TEMP_CPP_PATH", "-o", "TEMP_SO_PATH"
+        ]
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix=".cpp", delete=False) as tmp_cpp_file:
+        tmp_cpp_file.write(gen_cpp_code)
+        cpp_src_path = tmp_cpp_file.name
 
-        with open(cpp_path, "w") as f:
-            f.write(cpp_code)
+    lib_path = tempfile.mktemp(suffix=".so")
 
-        try:
-            subprocess.run(comp_cmd, check=True, capture_output=True, text=True)
-        except subprocess.CalledProcessError as e:
-            raise
+    final_comp_cmd = [
+        arg.replace("TEMP_CPP_PATH", cpp_src_path).replace("TEMP_SO_PATH", lib_path)
+        for arg in compiler_flags
+    ]
 
-        lib = ctypes.CDLL(os.path.abspath(so_path))
-        c_func = getattr(lib, c_func_name)
+    print(f"\n--- Generated C++ Code \n")
+    print(gen_cpp_code)
+    print(f"\n--- End Generated C++ Code \n")
 
-        concrete_data_map = {}
-        np_arr_refs = []
+    try:
+        subprocess.run(final_comp_cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as err:
+        print(f"Compilation failed ")
+        os.remove(cpp_src_path)
+        if os.path.exists(lib_path):
+            os.remove(lib_path)
+        raise
 
-        all_graph_nodes = set()
-        all_inputs, all_sym_dims = get_graph_io(outs)
-        for node in all_inputs:
-            all_graph_nodes.add(node)
-        for op in topological_sort_operations(outs):
-            all_graph_nodes.add(op)
-        for out_node in outs:
-            all_graph_nodes.add(out_node)
-        
-        for node in all_graph_nodes:
-            if isinstance(node, (Matrix, Operation)):
-                if node.name not in inputs:
-                    m_val, n_val = get_shape(node.shape, inputs)
-                    arr = np.zeros((m_val, n_val), dtype=np.float32)
-                    concrete_data_map[node.name] = arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-                    np_arr_refs.append(arr)
-                else:
-                    arr = inputs[node.name]
-                    arr_f32 = arr.astype(np.float32, copy=False)
-                    concrete_data_map[node.name] = arr_f32.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-                    np_arr_refs.append(arr_f32)
+    compiled_lib = ctypes.CDLL(os.path.abspath(lib_path))
+    c_func = getattr(compiled_lib, func_name)
 
-        for dim_var in all_sym_dims:
-            if dim_var.name not in inputs:
-                raise ValueError(f"Value for dim '{dim_var.name}' not in inputs.")
-            concrete_data_map[dim_var.name] = inputs[dim_var.name] 
+    c_arg_types = []
+    c_arg_values = []
+    np_array_refs = []
 
-        c_arg_types = []
-        c_arg_vals = []
+    all_graph_elements = set()
+    all_inputs_from_graph, _ = get_graph_io(outs)
 
-        for arg_name in ordered_c_func_arg_names:
-            if arg_name in concrete_data_map:
-                if isinstance(concrete_data_map[arg_name], (ctypes.POINTER(ctypes.c_float), ctypes._Pointer)):
-                    c_arg_types.append(ctypes.POINTER(ctypes.c_float))
-                    c_arg_vals.append(concrete_data_map[arg_name])
-                elif isinstance(concrete_data_map[arg_name], int):
-                    c_arg_types.append(ctypes.c_int)
-                    c_arg_vals.append(ctypes.c_int(concrete_data_map[arg_name]))
-                else:
-                    raise TypeError(f"Unexpected type for concrete data map entry '{arg_name}': {type(concrete_data_map[arg_name])}")
+    for item in all_inputs_from_graph:
+        all_graph_elements.add(item)
+    all_graph_elements.add(actual_out_matrix) 
+
+    for op_node in topological_sort_operations(outs):
+        all_graph_elements.add(op_node)
+    
+    obj_by_name = {obj.name: obj for obj in all_graph_elements if isinstance(obj, (Matrix, Operation))}
+
+    for arg_name in arg_names_ordered:
+        if arg_name.endswith('_data'):
+            mat_name = arg_name.replace('_data', '')
+            sym_obj = None
+            if mat_name in inputs:
+                np_arr = inputs[mat_name].astype(np.float32, copy=False)
+                sym_obj = next((m for m in all_graph_elements if m.name == mat_name and isinstance(m, Matrix)), None)
             else:
-                raise RuntimeError(f"input functions are not prealocated ")
-                                   
-
-        c_func.argtypes = c_arg_types
-        c_func.restype = None
-
-        c_func(*c_arg_vals)
-
-        out_res_dict = {}
-        for out_node in outs:
-            if out_node.name not in concrete_data_map:
-                raise RuntimeError(f"Output '{out_node.name}' not found in concrete_data_map after C++ execution.")
-            m_out, n_out = get_shape(out_node.shape, inputs)
-            out_res_dict[out_node.name] = np.ctypeslib.as_array(concrete_data_map[out_node.name], shape=(m_out, n_out))
-
-        os.remove(cpp_path)
-        os.remove(so_path)
-
-        return out_res_dict
-
-    else:
-        raise ValueError(f"wrong backend")
+                sym_obj = obj_by_name.get(mat_name)
+                if mat_name == actual_out_matrix.name:
+                    sym_obj = actual_out_matrix
+            
+            concrete_logical_shape = get_shape(sym_obj.shape, inputs)
+            N_val = inputs['N']
 
 
+            if isinstance(sym_obj, (UpperTriangularMatrix, LowerTriangularMatrix)):
+                num_elements = N_val * (N_val + 1) // 2
+                actual_storage_shape = (num_elements,)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# import subprocess
-# import numpy as np
-# import ctypes
-# import os
-# from dsl.codegen_openblas import compute_openblas
-# from dsl.codegen import generate_cpp_code 
-# from dsl.codegen_numpy import compute_numpy
-# from dsl.var import Var
-# from dsl.matrix import Matrix 
-# from dsl.utils import get_graph_io
-
-# def get_shape(shape_tuple, in_data):
-#     res = []
-#     for dim in shape_tuple:
-#         if isinstance(dim, Var):
-#             if dim.name not in in_data:
-#                 raise ValueError(f"Dim '{dim.name}' not in inputs.")
-#             res.append(in_data[dim.name])
-#         elif isinstance(dim, int):
-#             res.append(dim)
-#         else:
-#             raise TypeError(f"Invalid dim type: {type(dim)}. Expected Var or int.")
-#     return tuple(res)
-
-# def run(outs, inputs, backend="openblas"):
-#     if not outs:
-#         return {}
-
-#     if backend == "numpy":
-#         np_eval_func = compute_numpy(outs)
-#         return np_eval_func(inputs)
-
-#     elif backend in ["cpp", "openblas"]:
-#         cpp_code = ""
-#         comp_cmd = []
-#         c_func_name = "" 
-#         ordered_c_func_arg_names = []
-
-#         if backend == "cpp":
-#             cpp_code, c_func_name, ordered_c_func_arg_names = generate_cpp_code(outs)
-#         elif backend == "openblas":
-#             cpp_code, c_func_name, ordered_c_func_arg_names = compute_openblas(outs)
+            elif isinstance(sym_obj, DiagonalMatrix):
+                actual_storage_shape = (N_val,)
+            elif isinstance(sym_obj, ToeplitzMatrix):
+                num_elements = (2 * N_val) - 1
+                actual_storage_shape = (num_elements,)
+            else:
+                actual_storage_shape = concrete_logical_shape
+            if mat_name in inputs:
+                np_arr = inputs[mat_name].astype(np.float32, copy=False)
+                if np_arr.shape != actual_storage_shape:
+                    raise ValueError(f"Error in shape")
+            else:
+                np_arr = np.zeros(actual_storage_shape, dtype=np.float32)
+            inputs[mat_name] = np_arr
+            c_arg_val = inputs[mat_name].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+            c_arg_types.append(ctypes.POINTER(ctypes.c_float))
+            c_arg_values.append(c_arg_val)
+            np_array_refs.append(inputs[mat_name])
+        elif arg_name in inputs and isinstance(inputs[arg_name], (int, np.integer)):
+            c_arg_val = ctypes.c_int(inputs[arg_name])
+            c_arg_types.append(ctypes.c_int)
+            c_arg_values.append(c_arg_val)
         
-#         cpp_path = f"gen_{c_func_name}.cpp"
-#         so_path = f"gen_{c_func_name}.so"
+        
+    c_func.argtypes = c_arg_types
+    c_func.restype = None
+    c_func(*c_arg_values)
 
-#         if backend == "cpp":
-#             comp_cmd = [
-#                 "/usr/bin/g++",
-#                 "-O3", "-std=c++17", "-fPIC", "-shared",
-#                 cpp_path, "-o", so_path
-#             ]
-#         elif backend == "openblas":
-#             comp_cmd = [
-#                 "/usr/bin/g++",
-#                 "-O3", "-std=c++17", "-fPIC", "-shared",
-#                 "-I", "/usr/include/x86_64-linux-gnu",
-#                 cpp_path, "-o", so_path,
-#                 "-L", "/usr/lib/x86_64-linux-gnu",
-#                 "-lopenblas"
-#             ]
+    results_dict = {}
+    
+    results_dict[actual_out_matrix.name] = inputs[actual_out_matrix.name]
 
-#         with open(cpp_path, "w") as f:
-#             f.write(cpp_code)
+    os.remove(cpp_src_path)
+    os.remove(lib_path) 
 
-#         try:
-#             subprocess.run(comp_cmd, check=True, capture_output=True, text=True)
-#         except subprocess.CalledProcessError as e:
-#             print(f"Compilation failed. STDOUT:\n{e.stdout}\nSTDERR:\n{e.stderr}")
-#             raise
-
-#         lib = ctypes.CDLL(os.path.abspath(so_path))
-#         c_func = getattr(lib, c_func_name)
-
-#         concrete_data_map = {}
-#         np_arr_refs = []
-
-#         all_in_mats, all_sym_dims = get_graph_io(outs) 
-
-#         for mat in all_in_mats:
-#             if mat.name not in inputs:
-#                raise ValueError(f"Data for '{mat.name}' not in inputs.")
-#             np_arr = inputs[mat.name]
-#             np_arr_f32 = np_arr.astype(np.float32, copy=False) 
-#             concrete_data_map[mat.name] = np_arr_f32.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-#             np_arr_refs.append(np_arr_f32)
-
-#         out_res_dict = {}
-#         for out_node in outs:
-#             if out_node not in all_in_mats:
-#                 m_out, n_out = get_shape(out_node.shape, inputs)
-#                 out_np_arr = np.zeros((m_out, n_out), dtype=np.float32)
-#                 concrete_data_map[out_node.name] = out_np_arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-#                 np_arr_refs.append(out_np_arr)
-#                 out_res_dict[out_node.name] = out_np_arr
-#             else:
-#                 out_res_dict[out_node.name] = inputs[out_node.name]
-
-#         for dim_var in all_sym_dims:
-#             if dim_var.name not in inputs:
-#                 raise ValueError(f"Value for dim '{dim_var.name}' not in inputs.")
-#             concrete_data_map[dim_var.name] = inputs[dim_var.name] 
-
-#         c_arg_types = []
-#         c_arg_vals = []
-
-#         for arg_name in ordered_c_func_arg_names:
-#             if arg_name in concrete_data_map:
-#                 if isinstance(concrete_data_map[arg_name], (ctypes.POINTER(ctypes.c_float), ctypes._Pointer)):
-#                     c_arg_types.append(ctypes.POINTER(ctypes.c_float))
-#                     c_arg_vals.append(concrete_data_map[arg_name])
-#                 elif isinstance(concrete_data_map[arg_name], int):
-#                     c_arg_types.append(ctypes.c_int)
-#                     c_arg_vals.append(ctypes.c_int(concrete_data_map[arg_name]))
-#                 else:
-#                     raise TypeError(f"Unexpected type for concrete data map entry '{arg_name}': {type(concrete_data_map[arg_name])}")
-#             else:
-#                 raise RuntimeError(f"Argument '{arg_name}' from C++ signature not found in concrete data map.")
-
-#         c_func.argtypes = c_arg_types
-#         c_func.restype = None
-
-#         c_func(*c_arg_vals)
-
-#         os.remove(cpp_path)
-#         os.remove(so_path)
-
-#         return out_res_dict
-
-#     else:
-#         raise ValueError(f"Bad backend: {backend}")
+    return results_dict
