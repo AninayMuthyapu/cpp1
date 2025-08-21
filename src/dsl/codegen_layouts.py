@@ -1,18 +1,40 @@
-
+import logging
 from .var import Expression, Var, Comparison, ArithmeticExpression, Conditional
-from .matrix import GeneralMatrix, UpperTriangularMatrix, DiagonalMatrix, LowerTriangularMatrix 
-
+from .matrix import GeneralMatrix, UpperTriangularMatrix, DiagonalMatrix, LowerTriangularMatrix, ToeplitzMatrix
 
 def isLiteralZero(ex):
-    
     return isinstance(ex, (int, float)) and ex == 0
 
 def isConditionalZeroElse(ex):
-   
     return isinstance(ex, Conditional) and isLiteralZero(ex.false_value)
 
-def exprToCpp(ex):
-    
+def isNegationKnown(condition, known_conditions):
+    if not isinstance(condition, Comparison):
+        return False
+
+    negated_op = None
+    if condition.op == '<=':
+        negated_op = '>'
+    elif condition.op == '>=':
+        negated_op = '<'
+    elif condition.op == '==':
+        negated_op = '!='
+    elif condition.op == '<':
+        negated_op = '>='
+    elif condition.op == '>':
+        negated_op = '<='
+    elif condition.op == '!=':
+        negated_op = '=='
+    else:
+        return False
+
+    negated_comparison = Comparison(condition.left, negated_op, condition.right)
+    return negated_comparison in known_conditions
+
+def exprToCpp(ex, known_conditions=None):
+    if known_conditions is None:
+        known_conditions = set()
+
     if isinstance(ex, str):
         return ex
     elif isinstance(ex, (int, float)):
@@ -22,56 +44,60 @@ def exprToCpp(ex):
     elif isinstance(ex, ArithmeticExpression):
         op = ex.op
         
-        
         if op == '+':
-            # Case 1: X + 0 => X
             if isLiteralZero(ex.right):
-                return exprToCpp(ex.left)
-            # Case 2: 0 + X => X
+                return exprToCpp(ex.left, known_conditions)
             if isLiteralZero(ex.left):
-                return exprToCpp(ex.right)
-            # Case 3: X + (cond ? Y : 0) => (cond ? (X + Y) : X)
-            
+                return exprToCpp(ex.right, known_conditions)
             if isConditionalZeroElse(ex.right):
-                condStr = exprToCpp(ex.right.condition)
+                if ex.right.condition in known_conditions:
+                    return exprToCpp(ArithmeticExpression(ex.left, '+', ex.right.true_value), known_conditions)
+                if isNegationKnown(ex.right.condition, known_conditions):
+                    return exprToCpp(ex.left, known_conditions)
+                condStr = exprToCpp(ex.right.condition, known_conditions)
                 trueValExpr = ArithmeticExpression(ex.left, '+', ex.right.true_value)
-                trueValStr = exprToCpp(trueValExpr)
-                falseValStr = exprToCpp(ex.left)
+                trueValStr = exprToCpp(trueValExpr, known_conditions)
+                falseValStr = exprToCpp(ex.left, known_conditions)
                 return f"({condStr} ? {trueValStr} : {falseValStr})"
-            # Case 4: (cond ? X : 0) + Y => (cond ? (X + Y) : Y)
             if isConditionalZeroElse(ex.left):
-                condStr = exprToCpp(ex.left.condition)
+                if ex.left.condition in known_conditions:
+                    return exprToCpp(ArithmeticExpression(ex.left.true_value, '+', ex.right), known_conditions)
+                if isNegationKnown(ex.left.condition, known_conditions):
+                    return exprToCpp(ex.right, known_conditions)
+                condStr = exprToCpp(ex.left.condition, known_conditions)
                 trueValExpr = ArithmeticExpression(ex.left.true_value, '+', ex.right)
-                trueValStr = exprToCpp(trueValExpr)
-                falseValStr = exprToCpp(ex.right)
+                trueValStr = exprToCpp(trueValExpr, known_conditions)
+                falseValStr = exprToCpp(ex.right, known_conditions)
                 return f"({condStr} ? {trueValStr} : {falseValStr})"
         
         elif op == '-':
-            # Case 1: X - 0 => X
             if isLiteralZero(ex.right):
-                return exprToCpp(ex.left)
-            # Case 2: X - (cond ? Y : 0) => (cond ? (X - Y) : X)
-            
+                return exprToCpp(ex.left, known_conditions)
             if isConditionalZeroElse(ex.right):
-                condStr = exprToCpp(ex.right.condition)
+                if ex.right.condition in known_conditions:
+                    return exprToCpp(ArithmeticExpression(ex.left, '-', ex.right.true_value), known_conditions)
+                if isNegationKnown(ex.right.condition, known_conditions):
+                    return exprToCpp(ex.left, known_conditions)
+                condStr = exprToCpp(ex.right.condition, known_conditions)
                 trueValExpr = ArithmeticExpression(ex.left, '-', ex.right.true_value)
-                trueValStr = exprToCpp(trueValExpr)
-                falseValStr = exprToCpp(ex.left)
+                trueValStr = exprToCpp(trueValExpr, known_conditions)
+                falseValStr = exprToCpp(ex.left, known_conditions)
                 return f"({condStr} ? {trueValStr} : {falseValStr})"
-            # Case 3: 0 - X => -X 
             if isLiteralZero(ex.left):
-                return f"(-{exprToCpp(ex.right)})"
-            # Case 4: (cond ? X : 0) - Y => (cond ? (X - Y) : -Y)
+                return f"(-{exprToCpp(ex.right, known_conditions)})"
             if isConditionalZeroElse(ex.left):
-                condStr = exprToCpp(ex.left.condition)
+                if ex.left.condition in known_conditions:
+                    return exprToCpp(ArithmeticExpression(ex.left.true_value, '-', ex.right), known_conditions)
+                if isNegationKnown(ex.left.condition, known_conditions):
+                    return exprToCpp(ex.right, known_conditions)
+                condStr = exprToCpp(ex.left.condition, known_conditions)
                 trueValExpr = ArithmeticExpression(ex.left.true_value, '-', ex.right)
-                trueValStr = exprToCpp(trueValExpr)
-                falseValStr = f"(-{exprToCpp(ex.right)})" # -Y
+                trueValStr = exprToCpp(trueValExpr, known_conditions)
+                falseValStr = f"(-{exprToCpp(ex.right, known_conditions)})"
                 return f"({condStr} ? {trueValStr} : {falseValStr})"
 
-        
-        leftStr = exprToCpp(ex.left)
-        rightStr = exprToCpp(ex.right) if ex.right is not None else None 
+        leftStr = exprToCpp(ex.left, known_conditions)
+        rightStr = exprToCpp(ex.right, known_conditions) if ex.right is not None else None 
 
         if op == '+':
             return f"({leftStr} + {rightStr})"
@@ -79,32 +105,30 @@ def exprToCpp(ex):
             if ex.right is None: 
                 return f"(-{leftStr})" 
             return f"({leftStr} - {rightStr})"
-        elif op == '*':
-            return f"({leftStr} * {rightStr})"
-        elif op == '/':
-            return f"({leftStr} / {rightStr})"
+        
         elif op == 'subscript':
             return f"{leftStr}[{rightStr}]"
     elif isinstance(ex, Comparison):
-        leftStr = exprToCpp(ex.left)
-        rightStr = exprToCpp(ex.right)
+        if ex in known_conditions:
+            return "true"
+        if isNegationKnown(ex, known_conditions):
+            return "false"
+        leftStr = exprToCpp(ex.left, known_conditions)
+        rightStr = exprToCpp(ex.right, known_conditions)
         op = ex.op
         return f"({leftStr} {op} {rightStr})"
     elif isinstance(ex, Conditional):
-        condStr = exprToCpp(ex.condition)
-        trueStr = exprToCpp(ex.true_value)
-        falseStr = exprToCpp(ex.false_value)
+        if ex.condition in known_conditions:
+            return exprToCpp(ex.true_value, known_conditions)
+        if isNegationKnown(ex.condition, known_conditions):
+            return exprToCpp(ex.false_value, known_conditions)
+        condStr = exprToCpp(ex.condition, known_conditions)
+        trueStr = exprToCpp(ex.true_value, known_conditions)
+        falseStr = exprToCpp(ex.false_value, known_conditions)
         return f"({condStr} ? {trueStr} : {falseStr})"
     
-    else:
-        raise TypeError(f"Unknown expression type")
-
-
-def generateCppForMatrixLayout(layoutFunc, N):
-    ... 
 
 def codegenCpp(expression, outMatrix, allInputs):
-   
     symDims = set()
     for mat in allInputs:
         for dim in mat.shape:
@@ -132,9 +156,8 @@ def codegenCpp(expression, outMatrix, allInputs):
     iVar = Var('i')
     jVar = Var('j')
 
-    finalExpr = expression.get_symbolic_expression(iVar, jVar)
+    knownConditions = set()
 
-    
     iLoopStart = '0'
     iLoopEnd = 'N'
     jLoopStart = '0'
@@ -142,24 +165,41 @@ def codegenCpp(expression, outMatrix, allInputs):
 
     if isinstance(outMatrix, UpperTriangularMatrix):
         jLoopStart = 'i' 
+        knownConditions.add(Comparison(iVar, '<=', jVar)) 
     elif isinstance(outMatrix, LowerTriangularMatrix):
         jLoopEnd = 'i + 1'
+        knownConditions.add(Comparison(iVar, '>=', jVar))
     elif isinstance(outMatrix, DiagonalMatrix):
         jLoopStart = 'i'
         jLoopEnd = 'i + 1' 
-
+        knownConditions.add(Comparison(iVar, '==', jVar))
+    elif isinstance(outMatrix, ToeplitzMatrix):
+        pass
     
+    finalExpr = expression.get_symbolic_expression(iVar, jVar)
+    finalCppExpression = exprToCpp(finalExpr, knownConditions)
+    
+    output_index_cpp = ""
+    if isinstance(outMatrix, (UpperTriangularMatrix, LowerTriangularMatrix, DiagonalMatrix, ToeplitzMatrix)):
+        output_access_sym_expr_full = outMatrix.layout_function(iVar, jVar, Var(f"{outMatrix.name}_data"))
+        if isinstance(outMatrix, (UpperTriangularMatrix, LowerTriangularMatrix, DiagonalMatrix)):
+            index_expr_sym = output_access_sym_expr_full.true_value.right 
+        elif isinstance(outMatrix, ToeplitzMatrix):
+            index_expr_sym = output_access_sym_expr_full.right
+       
+        output_index_cpp = exprToCpp(index_expr_sym, knownConditions)
+    else:
+        output_index_cpp = f"({iVar.name} * {Var('N').name} + {jVar.name})"
+            
     cppCode = f"""
 #include <iostream>
 extern "C" void {funcNameC}({", ".join(funcArgsC)}) {{
     // C++ code generated by the DSL compiler
     for (int i = {iLoopStart}; i < {iLoopEnd}; ++i) {{
         for (int j = {jLoopStart}; j < {jLoopEnd}; ++j) {{
-            {outMatrix.name}_data[i * N + j] = {exprToCpp(finalExpr)};
+            {outMatrix.name}_data[{output_index_cpp}] = {finalCppExpression};
         }}
     }}
 }}
 """
-    
-
     return cppCode, orderedFuncArgNames, funcNameC
