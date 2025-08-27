@@ -1,16 +1,17 @@
-
-
-from .var import Var
+from .var import Var, MatMulExpression, Conditional, InverseExperession
 from .layout_functions import (
     general_layout,
     diagonal_layout,
     lower_triangular_layout,
-    upper_triangular_layout
+    upper_triangular_layout,
+    toeplitz_layout,
+    symmetric_layout
 )
-from .layout import DType
+from .layout import DType, Layout, check_conflicts
+
+N = Var('N')
 
 class Matrix:
-    
     def __init__(self, shape, dtype, name="unnamed"):
         self.shape = shape
         self.dtype = dtype
@@ -33,10 +34,17 @@ class Matrix:
     def __matmul__(self, other):
         from .operations import Operation
         return Operation("matmul", [self, other])
-
+    
+    @property
+    def T(self):
+        from .operations import Operation
+        return Operation("transpose", [self])
+    
+    def __invert__(self):
+        from .operations import Operation
+        return Operation("inverse", [self])
 
 class SymbolicMatrix(Matrix):
-    
     def __init__(self, shape, dtype, name="unnamed", layout_function=None):
         super().__init__(shape, dtype, name)
         if layout_function:
@@ -49,13 +57,14 @@ class SymbolicMatrix(Matrix):
                 f"name={self.name})")
 
     def get_symbolic_expression(self, i, j):
-        return self.layout_function(i, j, Var(f"{self.name}_data"))
-
+        if self.shape[0] == self.shape[1]:
+            return self.layout_function(i, j, Var(f"{self.name}_data"), N)
+        else:
+            return self.layout_function(i, j, Var(f"{self.name}_data"), Var(self.shape[0]), Var(self.shape[1]))
 
 class GeneralMatrix(SymbolicMatrix):
     def __init__(self, shape, name="unnamed", dtype=DType.float):
         super().__init__(shape, dtype, name, general_layout)
-
 
 class DiagonalMatrix(SymbolicMatrix):
     def __init__(self, shape, name="unnamed", dtype=DType.float):
@@ -63,13 +72,11 @@ class DiagonalMatrix(SymbolicMatrix):
             raise ValueError("DiagonalMatrix must be square")
         super().__init__(shape, dtype, name, diagonal_layout)
 
-
 class UpperTriangularMatrix(SymbolicMatrix):
     def __init__(self, shape, name="unnamed", dtype=DType.float):
         if not (len(shape) == 2 and shape[0] == shape[1]):
             raise ValueError("UpperTriangularMatrix must be square")
         super().__init__(shape, dtype, name, upper_triangular_layout)
-
 
 class LowerTriangularMatrix(SymbolicMatrix):
     def __init__(self, shape, name="unnamed", dtype=DType.float):
@@ -77,6 +84,23 @@ class LowerTriangularMatrix(SymbolicMatrix):
             raise ValueError("LowerTriangularMatrix must be square")
         super().__init__(shape, dtype, name, lower_triangular_layout)
 
+class SymmetricMatrix(SymbolicMatrix):
+    def __init__(self, shape, name="unnamed", dtype=DType.float):
+        if not (len(shape) == 2 and shape[0] == shape[1]):
+            raise ValueError("SymmetricMatrix must be square")
+        super().__init__(shape, dtype, name, symmetric_layout)
+
+class Vector(Matrix):
+    def __init__(self, shape, name="unnamed", dtype=DType.float):
+        if not (len(shape) == 2 and (shape[0] == 1 or shape[1] == 1)):
+            raise ValueError("Vector shape must have one dimension equal to 1.")
+        super().__init__(shape, dtype, name)
+    
+    def get_symbolic_expression(self, i, j):
+        if self.shape[0] == 1:
+            return Var(f"{self.name}[{j}]")
+        else:
+            return Var(f"{self.name}[{i}]")
 
 
 
@@ -107,82 +131,186 @@ class LowerTriangularMatrix(SymbolicMatrix):
 
 
 
-# from .layout import Layout 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # from .var import Var
+# from .layout_functions import (
+#     general_layout,
+#     diagonal_layout,
+#     lower_triangular_layout,
+#     upper_triangular_layout,
+#     toeplitz_layout,
+#     symmetric_layout
+# )
+# from .layout import DType, Layout, check_conflicts
 
+# class Property:
+   
+#     FULL_RANK = "FULL_RANK"
+#     SINGULAR = "SINGULAR"
+#     POSITIVE_DEFINITE = "POSITIVE_DEFINITE"
+#     POSITIVE_SEMI_DEFINITE = "POSITIVE_SEMI_DEFINITE"
+    
 
 # class Matrix:
-#     def __init__(self, shape, dtype="float", layout=Layout.GENERAL, name=None):
-#         if not isinstance(shape, tuple) or not all(isinstance(dim, Var) for dim in shape):
-#             raise TypeError("Shape must be a tuple of Var instances (e.g., (Var('M'), Var('N')))")
-        
+    
+#     def __init__(self, name, shape, dtype=DType.float):
+#         self.name = name
 #         self.shape = shape
 #         self.dtype = dtype
-#         self.layout = layout
-#         self.name = name or "unnamed"
-#         self.parents = []
+#         self.layout = set()
+#         self.properties = set()
+
+#     def __repr__(self):
+#         return f"Matrix(name='{self.name}', shape={self.shape}, dtype={self.dtype}, layout={self.layout}, props={self.properties})"
+    
+#     def add_layout(self, prop: Layout):
+#         """Adds a layout property to the matrix and checks for conflicts."""
+#         new_layouts = self.layout.union({prop})
+#         check_conflicts(new_layouts)
+#         self.layout.add(prop)
+
+#     def add_property(self, prop: str):
+#         """Adds a non-structural property to the matrix."""
+#         self.properties.add(prop)
+
+#     def get_symbolic_expression(self, i, j):
+#         raise NotImplementedError("ERROR in get_symbolic_expression. ")
 
 #     def __add__(self, other):
 #         from .operations import Operation
-#         return Operation([self, other], "add")
+#         return Operation("add", [self, other])
 
 #     def __sub__(self, other):
 #         from .operations import Operation
-#         return Operation([self, other], "sub")
+#         return Operation("sub", [self, other])
 
 #     def __matmul__(self, other):
 #         from .operations import Operation
-#         return Operation([self, other], "matmul")
-
-#     def transpose(self):
+#         return Operation("matmul", [self, other])
+    
+#     @property
+#     def T(self):
 #         from .operations import Operation
-#         return Operation([self], "transpose")
-
-#     def inverse(self):
+#         return Operation("transpose", [self])
+    
+#     def __invert__(self):
 #         from .operations import Operation
-#         return Operation([self], "inverse")
+#         return Operation("inverse", [self])
+    
 
-#     def accept(self, visitor):
-#         return visitor.visit_matrix(self)
+# class Vector(Matrix):
+#     def __init__(self, name, shape, dtype=DType.float):
+#         if not (len(shape) == 2 and (shape[0] == 1 or shape[1] == 1)):
+#             raise ValueError("Vector shape must have one dimension equal to 1.")
+        
+#         super().__init__(name, shape, dtype)
+#         self.add_layout(Layout.VECTOR)
 
 #     def __repr__(self):
-#         return (f"{self.__class__.__name__}(shape={self.shape}, "
-#                 f"dtype={self.dtype}, layout={self.layout}, name={self.name})")
+#         return f"Vector(name='{self.name}', shape={self.shape}, dtype={self.dtype}, layout={self.layout}, props={self.properties})"
+
+#     def get_symbolic_expression(self, i, j):
+#         if self.shape[0] == 1:
+#             return Var(f"{self.name}[{j}]")
+#         else:
+#             return Var(f"{self.name}[{i}]")
+
+# class SymbolicMatrix(Matrix):
+    
+#     def __init__(self, name, shape, dtype=DType.float, layout_function=None):
+#         super().__init__(name, shape, dtype)
+#         if layout_function:
+#             self.layout_function = layout_function
+#         else:
+#             raise ValueError("SymbolicMatrix must be initialized with a layout_function.")
+
+#     def __repr__(self):
+#         return (f"SymbolicMatrix(name='{self.name}', shape={self.shape}, "
+#                 f"dtype={self.dtype}, layout={self.layout}, props={self.properties})")
+
+#     def get_symbolic_expression(self, i, j):
+#         return self.layout_function(i, j, Var(f"{self.name}_data"))
 
 
-# class GeneralMatrix(Matrix):
-#     def __init__(self, shape, dtype="float", name=None):
-#         super().__init__(shape, dtype, Layout.GENERAL, name=name)
+# class GeneralMatrix(SymbolicMatrix):
+#     def __init__(self, name, shape, dtype=DType.float):
+#         super().__init__(name, shape, dtype, general_layout)
+#         self.add_layout(Layout.GENERAL)
 
-# class DiagonalMatrix(Matrix):
-#     def __init__(self, shape, dtype="float", name=None):
-#         if shape[0] != shape[1]:
+
+# class DiagonalMatrix(SymbolicMatrix):
+#     def __init__(self, name, shape, dtype=DType.float):
+#         if not (len(shape) == 2 and shape[0] == shape[1]):
 #             raise ValueError("DiagonalMatrix must be square")
-#         super().__init__(shape, dtype, Layout.DIAGONAL, name=name)
+#         super().__init__(name, shape, dtype, diagonal_layout)
+#         self.add_layout(Layout.DIAGONAL)
 
-# class UpperTriangularMatrix(Matrix):
-#     def __init__(self, shape, dtype="float", name=None):
-#         if shape[0] != shape[1]:
+
+# class UpperTriangularMatrix(SymbolicMatrix):
+#     def __init__(self, name, shape, dtype=DType.float):
+#         if not (len(shape) == 2 and shape[0] == shape[1]):
 #             raise ValueError("UpperTriangularMatrix must be square")
-#         super().__init__(shape, dtype, Layout.UPPER_TRIANGULAR, name=name)
+#         super().__init__(name, shape, dtype, upper_triangular_layout)
+#         self.add_layout(Layout.UPPER_TRIANGULAR)
 
-# class LowerTriangularMatrix(Matrix):
-#     def __init__(self, shape, dtype="float", name=None):
-#         if shape[0] != shape[1]:
+
+# class LowerTriangularMatrix(SymbolicMatrix):
+#     def __init__(self, name, shape, dtype=DType.float):
+#         if not (len(shape) == 2 and shape[0] == shape[1]):
 #             raise ValueError("LowerTriangularMatrix must be square")
-#         super().__init__(shape, dtype, Layout.LOWER_TRIANGULAR, name=name)
+#         super().__init__(name, shape, dtype, lower_triangular_layout)
+#         self.add_layout(Layout.LOWER_TRIANGULAR)
 
 
-# class SymmetricMatrix(Matrix):
-#     def __init__(self, shape, dtype="float", name=None):
-#         if shape[0] != shape[1]:
+# class ToeplitzMatrix(SymbolicMatrix):
+    
+#     def __init__(self, name, shape, dtype=DType.float):
+#         if not (len(shape) == 2 and shape[0] == shape[1]):
+#             raise ValueError("ToeplitzMatrix must be square")
+#         super().__init__(name, shape, dtype, toeplitz_layout)
+#         self.add_layout(Layout.TOEPLITZ)
+
+
+# class SymmetricMatrix(SymbolicMatrix):
+#     def __init__(self, name, shape, dtype=DType.float):
+#         if not (len(shape) == 2 and shape[0] == shape[1]):
 #             raise ValueError("SymmetricMatrix must be square")
-#         super().__init__(shape, dtype, Layout.SYMMETRIC, name=name)
+#         super().__init__(name, shape, dtype, symmetric_layout)
+#         self.add_layout(Layout.SYMMETRIC)
 
 
-# class ToeplitzMatrix(Matrix):
-#     def __init__(self, shape, dtype="float", name=None):
-#         super().__init__(shape, dtype, Layout.TOEPLITZ, name=name)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
