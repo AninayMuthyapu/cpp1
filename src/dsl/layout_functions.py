@@ -69,6 +69,14 @@ def toeplitz_layout(i, j, data_arr):
 
 
 
+def symmetric_layout(i, j, data_arr):
+    return Conditional(
+        Comparison(i, "<=", j),
+        upper_triangular_layout(i, j, data_arr),
+        upper_triangular_layout(j, i, data_arr)
+    )
+
+
 
 
 
