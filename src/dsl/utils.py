@@ -1,3 +1,4 @@
+import sys
 from .matrix import Matrix
 from .operations import Operation
 from .var import Var
@@ -20,7 +21,8 @@ def topological_sort_operations(output_nodes):
             return
         recursion_stack.add(node)
         if isinstance(node, Operation):
-            for input_node in node.inputs:
+           
+            for input_node in node.operands:
                 dfs_visit(input_node)
         recursion_stack.remove(node)
         visited.add(node)
@@ -37,7 +39,8 @@ def topological_sort_operations(output_nodes):
         temp_visited.add(node)
         if isinstance(node, Operation):
             all_operations_in_graph.add(node)
-            for input_node in node.inputs:
+            
+            for input_node in node.operands:
                 temp_stack.append(input_node)
     sorted_unique_operations = sorted(list(all_operations_in_graph), 
                                       key=lambda op: op.name if hasattr(op, 'name') and op.name else str(id(op)))
@@ -56,14 +59,24 @@ def get_graph_io(output_nodes):
         if node in visited_nodes:
             continue
         visited_nodes.add(node)
-        for dim in node.shape:
-            if isinstance(dim, Var):
-                symbolic_dims.add(dim)
+        if hasattr(node, 'shape'):
+            for dim in node.shape:
+                if isinstance(dim, Var) or isinstance(dim, (int, float)):
+                    symbolic_dims.add(dim)
         if isinstance(node, Matrix) and not isinstance(node, Operation):
             input_matrices.add(node)
         elif isinstance(node, Operation):
-            for input_node in node.inputs:
+            
+            for input_node in node.operands:
                 stack.append(input_node)
     sorted_input_matrices = sorted(list(input_matrices), key=lambda m: m.name or "")
-    sorted_symbolic_dims = sorted(list(symbolic_dims), key=lambda v: v.name)
+    
+    
+    filtered_symbolic_vars = []
+    for dim in symbolic_dims:
+        if isinstance(dim, Var):
+            filtered_symbolic_vars.append(dim)
+            
+    sorted_symbolic_dims = sorted(filtered_symbolic_vars, key=lambda v: str(v.name))
+    
     return sorted_input_matrices, sorted_symbolic_dims
