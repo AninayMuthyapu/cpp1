@@ -1,15 +1,17 @@
-from .var import Var, MatMulExpression, Conditional, InverseExperession
+from .var import Var, Conditional, ArithmeticExpression, Comparison, InverseExperession
 from .layout_functions import (
     general_layout,
     diagonal_layout,
     lower_triangular_layout,
     upper_triangular_layout,
     toeplitz_layout,
-    symmetric_layout
+    vector_layout
 )
-from .layout import DType, Layout, check_conflicts
+class DType:
+    float = 'float'
+    double = 'double'
 
-N = Var('N')
+from .layout_functions import N as SymbolicN
 
 class Matrix:
     def __init__(self, shape, dtype, name="unnamed"):
@@ -21,7 +23,7 @@ class Matrix:
         return f"Matrix(shape={self.shape}, dtype={self.dtype}, name={self.name})"
 
     def get_symbolic_expression(self, i, j):
-        raise NotImplementedError("ERROR in get_symbolic_expression. ")
+        raise NotImplementedError("ERROR in get_symbolic_expression.")
 
     def __add__(self, other):
         from .operations import Operation
@@ -57,10 +59,18 @@ class SymbolicMatrix(Matrix):
                 f"name={self.name})")
 
     def get_symbolic_expression(self, i, j):
-        if self.shape[0] == self.shape[1]:
-            return self.layout_function(i, j, Var(f"{self.name}_data"), N)
+        if len(self.shape) != 2:
+            raise ValueError("Matrix must be 2-dimensional.")
+
+        rows_dim, cols_dim = self.shape
+
+        if isinstance(rows_dim, Var) and isinstance(cols_dim, Var) and rows_dim.name == cols_dim.name:
+           
+            return self.layout_function(i, j, Var(f"{self.name}_data"), cols_dim)
+        elif isinstance(rows_dim, int) and isinstance(cols_dim, int) and rows_dim == cols_dim:
+            return self.layout_function(i, j, Var(f"{self.name}_data"), Var(rows_dim))
         else:
-            return self.layout_function(i, j, Var(f"{self.name}_data"), Var(self.shape[0]), Var(self.shape[1]))
+            return self.layout_function(i, j, Var(f"{self.name}_data"), cols_dim)
 
 class GeneralMatrix(SymbolicMatrix):
     def __init__(self, shape, name="unnamed", dtype=DType.float):
@@ -84,37 +94,18 @@ class LowerTriangularMatrix(SymbolicMatrix):
             raise ValueError("LowerTriangularMatrix must be square")
         super().__init__(shape, dtype, name, lower_triangular_layout)
 
-class SymmetricMatrix(SymbolicMatrix):
+class ToeplitzMatrix(SymbolicMatrix):
     def __init__(self, shape, name="unnamed", dtype=DType.float):
         if not (len(shape) == 2 and shape[0] == shape[1]):
-            raise ValueError("SymmetricMatrix must be square")
-        super().__init__(shape, dtype, name, symmetric_layout)
+            raise ValueError("ToeplitzMatrix must be square")
+        super().__init__(shape, dtype, name, toeplitz_layout)
 
-class Vector(Matrix):
+
+class Vector(SymbolicMatrix):
     def __init__(self, shape, name="unnamed", dtype=DType.float):
-        if not (len(shape) == 2 and (shape[0] == 1 or shape[1] == 1)):
-            raise ValueError("Vector shape must have one dimension equal to 1.")
-        super().__init__(shape, dtype, name)
-    
-    def get_symbolic_expression(self, i, j):
-        if self.shape[0] == 1:
-            return Var(f"{self.name}[{j}]")
-        else:
-            return Var(f"{self.name}[{i}]")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        if not (len(shape) == 2 and (shape[1] == 1 or shape[0] == 1)):
+            raise ValueError("Vector must have a shape of (N, 1) or (1, N)")
+        super().__init__(shape, dtype, name, vector_layout)
 
 
 
