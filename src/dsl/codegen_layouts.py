@@ -1,8 +1,11 @@
+#Converting mathematical expressions into c++ code.
 from dsl.var import Expression, Var, Comparison, ArithmeticExpression, Conditional, MatMulExpression
 from .matrix import GeneralMatrix, UpperTriangularMatrix, DiagonalMatrix, LowerTriangularMatrix, ToeplitzMatrix, SymmetricMatrix
 from .layout_functions import symmetric_layout
 
 def find_all_matrices_in_expression(ex, matrices=None):
+    #this function job is to recursively search through the entire expression tree and find all the matrix objects that are part of the calculation.
+
     if matrices is None:
         matrices = set()
     if isinstance(ex, (GeneralMatrix, UpperTriangularMatrix, DiagonalMatrix, LowerTriangularMatrix, ToeplitzMatrix, SymmetricMatrix)):
@@ -21,14 +24,14 @@ def find_all_matrices_in_expression(ex, matrices=None):
 
 
 
-def exprToCpp(ex, known_conditions=None, loop_counter=0, var_map=None):
+def exprToCpp(ex, known_conditions=None, loop_counter=0, var_map=None): #expression to cpp,it builds up final c++ code for the entire function.
     if known_conditions is None:
         known_conditions = set()
     if var_map is None:
         var_map = {}
-    if isinstance(ex, str):
+    if isinstance(ex, str): #base case
         return ex
-    elif isinstance(ex, (int, float)):
+    elif isinstance(ex, (int, float)): #if input is number it is converted into string and returned.
         return str(ex)
     elif isinstance(ex, Var):
         return var_map.get(ex.name, ex.name)
@@ -44,8 +47,6 @@ def exprToCpp(ex, known_conditions=None, loop_counter=0, var_map=None):
             return f"({leftStr} - {rightStr})"
         elif op == '*':
             return f"({leftStr} * {rightStr})"
-        elif op == '/':
-            return f"({leftStr} / {rightStr})"
         elif op == 'subscript':
             return f"{leftStr}[{rightStr}]"
         else:
@@ -93,7 +94,7 @@ def codegenCpp(expression, outMatrix, allInputs):
             funcArgsC_set.add(arg_str)
             orderedFuncArgNames_list.append(f"{mat.name}_data")
             var_map[mat.name] = f"{mat.name}_data"
-    all_sym_dims = set()
+    all_sym_dims = set() # set for initializing an empty set to store the names of symbolic dimensions.
 
     for mat in all_matrices_to_check:
         for dim in mat.shape:
@@ -184,3 +185,17 @@ extern "C" void {funcNameC}({", ".join(funcArgsC)}) {{
 }}
 """
     return cppCode, funcNameC, orderedFuncArgNames
+
+
+
+
+
+#For example in C=A@B - 
+# right_matrix_expr is and expression representing an element of matrix A-This would be in subscript operations on Var names 'A' symbolic indices are i and k
+# left_matrix_expr is an expression representing an element of matrix B symbolic indices are k and j
+# k_var is a Var representing the summation index k
+# inner_dim_size_var is a Var representing the size of the inner dimension (number of columns of A or number of rows of B)
+# outMatrix :Is an instance of general matrix named "C".allINputs:A list of general matrix objects.
+# The get_symbolic_expression(i,j) method of the output matrix C would return a MatMulExpression with these components.
+# The exprToCpp function will convert this MatMulExpression into C++ code that performs the summation over k to compute the element C[i,j].
+# This allows the DSL to represent complex matrix operations symbolically and then generate
