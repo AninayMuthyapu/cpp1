@@ -1,142 +1,233 @@
-import hashlib
-from dsl.operations import Operation
-from dsl.var import Var
-from dsl.matrix import Matrix
-from dsl.utils import topological_sort_operations, get_graph_io 
+from dsl.var import Expression, Var, Comparison, ArithmeticExpression, Conditional, MatMulExpression
+from .matrix import GeneralMatrix, UpperTriangularMatrix, DiagonalMatrix, LowerTriangularMatrix, ToeplitzMatrix, SymmetricMatrix
 
-def dim_expr(d):
-    return f"{d.name}_val" if isinstance(d,Var) else str(d)
-
-def compute_optimized(outputs):
-    if not outputs:
-        return "","",[]
-    for i,out_node in enumerate(outputs):
-        if not hasattr(out_node,'name') or out_node.name is None or out_node.name =="unnamed":
-            out_node.name = f"out_{i}"
-
-    try:
-        ops_sorted=topological_sort_operations(outputs)
-    except ValueError as e:
-        raise e
+def find_all_matrices_in_expression(ex, matrices=None):
     
-    all_inputs,all_dims=get_graph_io(outputs)
-    all_matrix_nodes_in_graph=set(all_inputs)
-    for op in ops_sorted:
-        all_matrix_nodes_in_graph.add(op)
-    for out_node in outputs:
-        all_matrix_nodes_in_graph.add(out_node)
+    if matrices is None:
+        matrices = set()
+    if isinstance(ex, (GeneralMatrix, UpperTriangularMatrix, DiagonalMatrix, LowerTriangularMatrix, ToeplitzMatrix, SymmetricMatrix)):
+        matrices.add(ex)
+        return matrices
+    elif isinstance(ex, MatMulExpression):
+        find_all_matrices_in_expression(ex.left_matrix_expr, matrices)
+        find_all_matrices_in_expression(ex.right_matrix_expr, matrices)
+    elif isinstance(ex, ArithmeticExpression):
+        if ex.left is not None:
+            find_all_matrices_in_expression(ex.left, matrices)
+        if ex.right is not None:
+            find_all_matrices_in_expression(ex.right, matrices)
+    elif isinstance(ex, Conditional):
+        find_all_matrices_in_expression(ex.true_value, matrices)
+        find_all_matrices_in_expression(ex.false_value, matrices)
+    return matrices
 
-    add_counter=0
-    sub_counter=0
-    temp_op_counter=0   
-
-    for op in ops_sorted:
-        if op not in outputs and (op.name is None or op.name == "unnamed"):
-            op_type_lower = op.operations_type.lower()
-            if op_type_lower == "add":
-                op.name = f"intermediate_add_{add_counter}"
-                add_counter += 1
-            elif op_type_lower == "sub":
-                op.name = f"intermediate_sub_{sub_counter}"
-                sub_counter += 1
-            else:
-                op.name = f"intermediate_op_{temp_op_counter}"
-                temp_op_counter += 1
-
-    sorted_matrix_nodes = sorted(list(all_matrix_nodes_in_graph), key=lambda node: node.name)   
-    func_args=[]
-    ordered_arg_names=[]
-
-    for node in sorted_matrix_nodes:
-        func_args.append(f"float* {node.name}")
-        ordered_arg_names.append(node.name)
-
-    sorted_dims=sorted(list(all_dims), key=lambda d: d.name if isinstance(d, Var) else str(d))
-
-    for dim_var in sorted_dims:
-        func_args.append(f"int {dim_expr(dim_var)}")    
-        ordered_arg_names.append(dim_expr(dim_var)) 
-
-    func_sig = ", ".join(func_args)
-    graph_signature_str = str(ordered_arg_names) + str([op.operations_type for op in ops_sorted])
-    unique_hash = hashlib.md5(graph_signature_str.encode()).hexdigest()[:8]     
-    c_func_name = f"comp_graph_cpp_{unique_hash}"
-
-    code_parts=[
-        '#include <cstddef>\n',
-        '#include <cstring>\n',
-        '#include <vector>\n',
-        '#include <iostream>\n',
-        '#include <omp.h>\n',
-    ]
-
-    code_parts.append(f"""
-
-void add_op(float* out, const float* a, const float* b, long long size) {{
-    #pragma omp parallel for    
-    
-    for (long long i = 0; i < size; i += avx_size) {{
-        __m256 a_vec = _mm256_loadu_ps(a + i);
-        __m256 b_vec = _mm256_loadu_ps(b + i);
-        __m256 out_vec = _mm256_add_ps(a_vec, b_vec);
-        _mm256_storeu_ps(out + i, out_vec);
-    }}
-     for (long long i =avx_size;i<size;i++){{
-        out[i] = a[i] + b[i];
-     }}  
-
-void sub_op(float* out, const float* a, const float* b, long long size) {{
-    
-
-    #pragma omp parallel for
-    for (long long i = 0; i < size; i += 8) {{
-        __m256 a_vec = _mm256_loadu_ps(&a[i]);
-        __m256 b_vec = _mm256_loadu_ps(&b[i]);
-        __m256 c_vec = _mm256_sub_ps(a_vec, b_vec);
-        _mm256_storeu_ps(&out[i], c_vec);
-    }}
-
-    for (long long i = avx_size; i < size; ++i) {{
-        out[i] = a[i] - b[i];
-    }}
-}})""")
-    
-    code_parts.append(f"extern \"C\" void {c_func_name}({func_sig}) {{\n")
-
-    for dim_var in sorted_dims:
-        code_parts.append(f"  int {dim_var.name}_val={dim_var.name};\n")
-
-    code_parts.append("\n")
-    dsl_to_cpp_map = {node: node.name for node in all_matrix_nodes_in_graph}
-
-    for op in ops_sorted:
-        out_cpp_name=dsl_to_cpp_map[op]
-
-        lhs_name = dsl_to_cpp_map.get(op.inputs[0])
-        if lhs_name is None:
-            raise RuntimeError(f"LHS '{op.inputs[0].name}' not mapped.")
-        
-        rhs_name =None
-        if len(op.inputs)>1:
-            rhs_name= dsl_to_cpp_map.get(op.inputs[1])
-            if rhs_name is None:
-                raise RuntimeError(f"RHS '{op.inputs[1].name}' not mapped.")
-            
-        m_dim_cpp=dim_expr(op.shape[0])
-        n_dim_cpp=dim_expr(op.shape[1])
-        if op_type_lower=="add":
-            size_expr=f"(long long ){m_dim_cpp}*{n_dim_cpp}"
-            code_parts.append(f"    add_op({out_cpp_name}, {lhs_name}, {rhs_name}, {size_expr});\n")
-
-        if op_type_lower=="sub":
-            size_expr = f"(long long){m_dim_cpp} * {n_dim_cpp}"
-            code_parts.append(f"    sub_op({out_cpp_name}, {lhs_name}, {rhs_name}, {size_expr});\n")\
-        
+def exprToCpp(ex, known_conditions=None, loop_counter=0, var_map=None): #expression to cpp,it builds up final c++ code for the entire function.
+    if known_conditions is None:
+        known_conditions = set()
+    if var_map is None:
+        var_map = {}
+    if isinstance(ex, str): #base case
+        return ex
+    elif isinstance(ex, (int, float)): 
+        return str(ex)
+    elif isinstance(ex, Var):
+        return var_map.get(ex.name, ex.name)
+    elif isinstance(ex, ArithmeticExpression):
+        op = ex.op
+        leftStr = exprToCpp(ex.left, known_conditions, loop_counter, var_map)
+        rightStr = exprToCpp(ex.right, known_conditions, loop_counter, var_map) if ex.right is not None else None
+        if op == '+':
+            return f"({leftStr} + {rightStr})"
+        elif op == '-':
+            if ex.right is None:
+                return f"(-{leftStr})"
+            return f"({leftStr} - {rightStr})"
+        elif op == '*':
+            return f"({leftStr} * {rightStr})"
+        elif op == '/':
+            return f"({leftStr} / {rightStr})"
+        elif op == 'subscript':
+            return f"{leftStr}[{rightStr}]"
         else:
-            raise NotImplementedError(f"Op '{op_type_lower}'not supported")
+            raise TypeError(f"Unknown arithmetic operation '{op}' in ArithmeticExpression: {ex}")
+    elif isinstance(ex, Comparison):
+        leftStr = exprToCpp(ex.left, known_conditions, loop_counter, var_map)
+        rightStr = exprToCpp(ex.right, known_conditions, loop_counter, var_map)
+        op = ex.op
+        return f"({leftStr} {op} {rightStr})"
+    elif isinstance(ex, Conditional):
+        condStr = exprToCpp(ex.condition, known_conditions, loop_counter, var_map)
+        trueStr = exprToCpp(ex.true_value, known_conditions, loop_counter, var_map)
+        falseStr = exprToCpp(ex.false_value, known_conditions, loop_counter, var_map)
+        return f"({condStr} ? {trueStr} : {falseStr})"
+    elif isinstance(ex, MatMulExpression):
+        k_var_name = f"k_{loop_counter}"
+        new_var_map = var_map.copy()
+        new_var_map[ex.k_var.name] = k_var_name
+        inner_dim_size_name = exprToCpp(ex.inner_dim_size_var, known_conditions, loop_counter, new_var_map)
+
         
-    code_parts.append("}\n")
-    return "".join(code_parts),c_func_name,ordered_arg_names
+        left_matrix_element_cpp = exprToCpp(ex.left_matrix_expr, known_conditions, loop_counter, new_var_map)
+        right_matrix_element_cpp = exprToCpp(ex.right_matrix_expr, known_conditions, loop_counter, new_var_map)
+        
+        return (
+            f"([&]() {{ "
+            f"float sumVal = 0.0f; "
+            f"for (int {k_var_name} = 0; {k_var_name} < {inner_dim_size_name}; ++{k_var_name}) {{ "
+            f"sumVal += ({left_matrix_element_cpp} * {right_matrix_element_cpp}); "
+            f"}} return sumVal; }})()"
+        )
+    else:
+        raise TypeError(f"Unknown expression type: {type(ex)} with value: {ex}")
+
+
+def exprToCppAVX(ex, var_map):
+    if isinstance(ex, ArithmeticExpression):
+        op = ex.op
+        
+        if op == '+':
+            left_vector = exprToCppAVX(ex.left, var_map)
+            right_vector = exprToCppAVX(ex.right, var_map)
+            return f"_mm256_add_ps({left_vector}, {right_vector})"
+        elif op == '-':
+            left_vector = exprToCppAVX(ex.left, var_map)
+            right_vector = exprToCppAVX(ex.right, var_map)
+            return f"_mm256_sub_ps({left_vector}, {right_vector})"
+        else:
+            raise NotImplementedError(f"AVX not implemented for operation '{op}'.")
+    elif isinstance(ex, Var):
+        return var_map.get(ex.name, ex.name)
+    elif isinstance(ex, ArithmeticExpression) and ex.op == 'subscript':
+       
+        array_name = exprToCppAVX(ex.left, var_map)
+        
+        index_expr = exprToCpp(ex.right, None, 0, var_map)
+        return f"_mm256_loadu_ps(&{array_name}[{index_expr}])"
+    else:
+        
+        return exprToCpp(ex, None, 0, var_map)
+
+def codegenCppAVX(expression, outMatrix, allInputs):
+    funcArgsC_set = set()
+    orderedFuncArgNames_list = []
+    var_map = {}
+    all_matrices_in_expression = find_all_matrices_in_expression(expression)
+    all_matrices_to_check = allInputs + [outMatrix] + list(all_matrices_in_expression)
+
+    for mat in all_matrices_to_check:
+        arg_str = f"float* {mat.name}_data"
+        if arg_str not in funcArgsC_set:
+            funcArgsC_set.add(arg_str)
+            orderedFuncArgNames_list.append(f"{mat.name}_data")
+            var_map[mat.name] = f"{mat.name}_data"
+    all_sym_dims = set()
+
+    for mat in all_matrices_to_check:
+        for dim in mat.shape:
+            if isinstance(dim, Var):
+                all_sym_dims.add(dim.name)
+    sorted_sym_dims = sorted(list(all_sym_dims))
+
+    for sym_dim_name in sorted_sym_dims:
+        cpp_name = sym_dim_name.lower()
+        arg_str = f"int {cpp_name}"
+        if arg_str not in funcArgsC_set:
+            funcArgsC_set.add(arg_str)
+            orderedFuncArgNames_list.append(cpp_name)
+        var_map[sym_dim_name] = cpp_name
+    
+    out_arg_str = f"float* {outMatrix.name}_data"
+
+    if out_arg_str not in funcArgsC_set:
+        funcArgsC_set.add(out_arg_str)
+        orderedFuncArgNames_list.append(f"{outMatrix.name}_data")
+        var_map[outMatrix.name] = f"{outMatrix.name}_data"
+
+    funcArgsC = list(funcArgsC_set)
+    orderedFuncArgNames = orderedFuncArgNames_list
+    var_map['i'] = 'i'
+    var_map['j'] = 'j'
+    funcNameC = f"{outMatrix.name}_computation_avx"
+    iVar = Var('i')
+    jVar = Var('j')
+    
+    finalExpr = expression.get_symbolic_expression(iVar, jVar)
+    
+    output_dim_0 = exprToCpp(outMatrix.shape[0], None, 0, var_map)
+    output_dim_1 = exprToCpp(outMatrix.shape[1], None, 0, var_map)
+    
+    cppCode = f"""
+#include <iostream>
+#include <immintrin.h> // Header for AVX intrinsics
+
+extern "C" void {funcNameC}({", ".join(funcArgsC)}) {{
+    // AVX operates on 256-bit registers (8 floats)
+    const int vector_size = 8;
+    
+    // The main loops iterate through the rows and columns
+    for (int i = 0; i < {output_dim_0}; ++i) {{
+        // Vectorized loop for the j-th dimension, stepping by 8
+        for (int j = 0; j < {output_dim_1} / vector_size; ++j) {{
+            // Compute the starting index for the vector
+            int start_idx = (i * {output_dim_1}) + (j * vector_size);
+            
+            // Generate AVX expression for the computation
+            __m256 result_vec = {exprToCppAVX(finalExpr, var_map)};
+            
+            // Store the result vector back into the output array
+            _mm256_storeu_ps(&{outMatrix.name}_data[start_idx], result_vec);
+        }}
+
+        // Handle the remaining elements that don't fit in a full vector
+        for (int j = ({output_dim_1} / vector_size) * vector_size; j < {output_dim_1}; ++j) {{
+            int idx = (i * {output_dim_1}) + j;
+            {outMatrix.name}_data[idx] = {exprToCpp(finalExpr, None, 0, var_map)};
+        }}
+    }}
+}}
+"""
+    
+    if isinstance(outMatrix, UpperTriangularMatrix) or isinstance(outMatrix, SymmetricMatrix):
+        jLoopStart = 'i'
+        n_dim_name = var_map[outMatrix.shape[0].name]
+        output_index_cpp = f"((i * {n_dim_name}) - ((i * (i - 1)) / 2) + (j - i))"
+        cppCode = f"""
+#include <iostream>
+#include <immintrin.h>
+
+extern "C" void {funcNameC}({", ".join(funcArgsC)}) {{
+    const int vector_size = 8;
+    
+    for (int i = 0; i < {output_dim_0}; ++i) {{
+        for (int j = {jLoopStart}; j < {output_dim_1}; ++j) {{
+            // Since we're not doing a full-row vectorized op, we use scalar
+            {outMatrix.name}_data[{output_index_cpp}] = {exprToCpp(finalExpr, None, 0, var_map)};
+        }}
+    }}
+}}
+"""
+    elif isinstance(outMatrix, LowerTriangularMatrix):
+        jLoopEnd = 'i + 1'
+        output_index_cpp = f"((i * (i + 1)) / 2 + j)"
+        cppCode = f"""
+#include <iostream>
+#include <immintrin.h>
+
+extern "C" void {funcNameC}({", ".join(funcArgsC)}) {{
+    const int vector_size = 8;
+    
+    for (int i = 0; i < {output_dim_0}; ++i) {{
+        for (int j = 0; j < {jLoopEnd}; ++j) {{
+            // Since we're not doing a full-row vectorized op, we use scalar
+            {outMatrix.name}_data[{output_index_cpp}] = {exprToCpp(finalExpr, None, 0, var_map)};
+        }}
+    }}
+}}
+"""
+
+    return cppCode, funcNameC, orderedFuncArgNames
+
+
 
 
 
