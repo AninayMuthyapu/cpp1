@@ -46,7 +46,8 @@ def compute_optimized(outputs, out_matrix_obj, bm=64, bn=64, bk=64, it_m=4, it_n
     var_map, func_args_map = {}, {}
     for node in sorted(list(all_matrices_in_graph), key=lambda n: n.name):
         arg_name = f"{node.name}_data"
-        func_args_map[arg_name] = f"float* {arg_name}"
+        is_input = node in all_inputs
+        func_args_map[arg_name] = f"const float* {arg_name}" if is_input else f"float* {arg_name}"
         var_map[node.name] = arg_name
 
     for dim in sorted(list(all_dims), key=lambda d: d.name):
@@ -54,15 +55,16 @@ def compute_optimized(outputs, out_matrix_obj, bm=64, bn=64, bk=64, it_m=4, it_n
         func_args_map[cpp_name] = f"int {cpp_name}"
         var_map[dim.name] = cpp_name
 
-    func_args_map['bm'] = "int bm"
-    func_args_map['bn'] = "int bn"
-    func_args_map['bk'] = "int bk"
-    func_args_map['it_m'] = "int it_m"
-    func_args_map['it_n'] = "int it_n"
-    func_args_map['it_k'] = "int it_k"
-    func_args_map['time_ms_out'] = "double* time_ms_out"
-    func_args_map['gflops_out'] = "double* gflops_out"
-
+    for param in ['max_threads']:
+        func_args_map[param] = f"int {param}"
+    for perf_out in ['time_ms_out', 'gflops_out']:
+        func_args_map[perf_out] = f"double* {perf_out}"
+    for cache in ['A_cache', 'B_cache', 'C_cache']:
+        func_args_map[cache] = f"float** {cache}"
+    func_args_map['M'] = "int M"
+    func_args_map['N'] = "int N"
+    func_args_map['K'] = "int K"
+    template_decl = "template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>"
     ordered_arg_names = sorted(func_args_map.keys())
     func_args_str = ", ".join(func_args_map[name] for name in ordered_arg_names)
     func_name = f"{out_matrix_obj.name}_matmul"
@@ -70,72 +72,39 @@ def compute_optimized(outputs, out_matrix_obj, bm=64, bn=64, bk=64, it_m=4, it_n
     header = (
         "#include <omp.h>\n"
         "#include <immintrin.h>\n"
-        "#include <vector>\n"
-        "#include <cstring>\n"
         "#include <chrono>\n"
         "#include <algorithm>\n"
-        "#include <stdexcept>\n"
-        "#include <unistd.h>\n"
+        "#include <cstring>\n"
         "using namespace std::chrono;\n"
     )
 
-    dims_list = sorted(list(all_dims), key=lambda d: d.name)
-    dim_names = [d.name for d in dims_list]
-    if len(dim_names) >= 3:
-        M_var, N_var, K_var = dim_names[:3]
-    elif len(dim_names) == 2:
-        M_var, N_var = dim_names[:2]
-        K_var = None
-    elif len(dim_names) == 1:
-        M_var = dim_names[0]
-        N_var = None
-        K_var = None
-    else:
-        M_var = 'M'; N_var = 'N'; K_var = 'K'
-
-    m_name = var_map.get(M_var, 'M')
-    n_name = var_map.get(N_var, 'N') if N_var is not None else 'N'
-    k_name = var_map.get(K_var, 'K') if K_var is not None else 'K'
-
-    arg_keys = set(func_args_map.keys())
-    if n_name not in arg_keys:
-        n_name = m_name
-    if k_name not in arg_keys:
-        k_name = m_name
-
     lhs, rhs = out_node.operands
+    M_dim, K_dim_lhs = lhs.shape
+    K_dim_rhs, N_dim = rhs.shape
+    if K_dim_lhs != K_dim_rhs:
+        raise ValueError("Inner dimensions of matmul do not match.")
+        
+    m_name = var_map.get(M_dim.name, str(M_dim))
+    n_name = var_map.get(N_dim.name, str(N_dim))
+    k_name = var_map.get(K_dim_lhs.name, str(K_dim_lhs))
+    
     A_ptr = var_map[lhs.name]
     B_ptr = var_map[rhs.name]
     C_ptr = var_map[out_matrix_obj.name]
 
-    vector_width = 8
-    flops_expr = f"(2.0 * (double){m_name} * (double){n_name} * (double){k_name})"
+    flops_expr = f"(2.0 * (float)M * (float)N * (float)K)"
 
+    
     computation_body = f"""
-const int BM = bm;
-const int BN = bn;
-const int BK = bk;
-const int IT_M = it_m;
-const int IT_N = it_n;
-const int IT_K = it_k;
-const int VEC_WIDTH = {vector_width};
 
-int max_threads = omp_get_max_threads();
-long page_size = sysconf(_SC_PAGESIZE);
-float** A_cache = new float*[max_threads];
-float** B_cache = new float*[max_threads];
-float** C_cache = new float*[max_threads];
-for (int t = 0; t < max_threads; ++t) {{
-    A_cache[t] = (float*)aligned_alloc(page_size, ((BM * BK * sizeof(float) + page_size - 1) / page_size) * page_size);
-    B_cache[t] = (float*)aligned_alloc(page_size, ((BK * BN * sizeof(float) + page_size - 1) / page_size) * page_size);
-    C_cache[t] = (float*)aligned_alloc(page_size, ((BM * BN * sizeof(float) + page_size - 1) / page_size) * page_size);
-}}
+const int VEC_WIDTH = 8;
 
 auto start = high_resolution_clock::now();
 bool alloc_failed = false;
-#pragma omp parallel for collapse(2) schedule(dynamic)
-for (int m1 = 0; m1 < {m_name}; m1 += BM) {{
-    for (int n1 = 0; n1 < {n_name}; n1 += BN) {{
+#pragma omp parallel for collapse(2) schedule(dynamic) 
+
+for (int m1 = 0; m1 < M; m1 += BM) {{
+    for (int n1 = 0; n1 < N; n1 += BN) {{
         int thread_id = omp_get_thread_num();
         float* local_A_cache = A_cache[thread_id];
         float* local_B_cache = B_cache[thread_id];
@@ -143,34 +112,34 @@ for (int m1 = 0; m1 < {m_name}; m1 += BM) {{
 
         for(int i=0;i<BM;i++){{  
             int global_row=m1+i;
-            memcpy(&local_C_cache[i*BN],&{C_ptr}[global_row * {n_name} + n1], BN * sizeof(float));
+            memcpy(&local_C_cache[i*BN],&{C_ptr}[global_row * N + n1], BN * sizeof(float));
         }}
-        for(int k1=0;k1<{k_name};k1+=BK){{
-            if ({k_name} % BK == 0) {{
+        for(int k1=0;k1<K;k1+=BK){{
+            if ( K % BK == 0) {{
                 for(int mm=0;mm<BM;++mm){{
                     int global_row=m1+mm;
-                    if(global_row<{m_name}){{
-                        memcpy(&local_A_cache[mm*BK],&{A_ptr}[global_row*{k_name}+k1],BK*sizeof(float));
+                    if(global_row<M){{
+                        memcpy(&local_A_cache[mm*BK],&{A_ptr}[global_row*K+k1],BK*sizeof(float));
                     }}
                 }}
             }} else {{
                 for(int mm=0;mm<BM;++mm){{
                     int global_row=m1+mm;
-                    int valid_cols=std::min(BK,{k_name}-k1);
-                    memcpy(&local_A_cache[mm*BK],&{A_ptr}[global_row*{k_name}+k1],valid_cols*sizeof(float));
+                    int valid_cols=std::min(BK,K-k1);
+                    memcpy(&local_A_cache[mm*BK],&{A_ptr}[global_row*K+k1],valid_cols*sizeof(float));
                 }}
             }}
 
-            if ({n_name}%BN==0 && {k_name} % BK == 0) {{
+            if (K % BK == 0 && N % BN == 0) {{
                 for (int kk = 0; kk < BK; ++kk) {{
                     int global_row = k1 + kk;
-                    memcpy(&local_B_cache[kk * BN], &{B_ptr}[global_row * {n_name} + n1], BN * sizeof(float));
+                    memcpy(&local_B_cache[kk * BN], &{B_ptr}[global_row * N + n1], BN * sizeof(float));
                 }}
             }} else {{
                 for (int kk = 0; kk < BK; ++kk) {{
                     int global_row = k1 + kk;
-                    int valid_cols = std::min(BN, {n_name} - n1);
-                    memcpy(&local_B_cache[kk * BN], &{B_ptr}[global_row * {n_name} + n1], valid_cols * sizeof(float));
+                    int valid_cols = std::min(BN, N - n1);
+                    memcpy(&local_B_cache[kk * BN], &{B_ptr}[global_row * N + n1], valid_cols * sizeof(float));
                 }}
             }}
             for(int i=0;i<BM;i+=IT_M){{
@@ -209,30 +178,58 @@ for (int m1 = 0; m1 < {m_name}; m1 += BM) {{
         }}
         for(int i=0;i<BM;i++){{  
             int global_row=m1+i;
-            if(global_row<{m_name}){{
-                int valid_cols=std::min(BN,{n_name}-n1);
-                memcpy(&{C_ptr}[global_row * {n_name} + n1],&local_C_cache[i*BN], valid_cols * sizeof(float));
+            if(global_row<M){{
+                int valid_cols=std::min(BN,N-n1);
+                memcpy(&{C_ptr}[global_row * N + n1],&local_C_cache[i*BN], valid_cols * sizeof(float));
             }}
         }}
     }}
 }}
 
-
-for (int t = 0; t < max_threads; ++t) {{
-    free(A_cache[t]);
-    free(B_cache[t]);
-    free(C_cache[t]);
-}}
-delete[] A_cache;
-delete[] B_cache;
-delete[] C_cache;
-
 auto end = high_resolution_clock::now();
 double time_ms = duration<double, std::milli>(end - start).count();
-* time_ms_out = time_ms;
-double total_flops = {flops_expr};
-* gflops_out = (time_ms > 0.0) ? (total_flops / (time_ms * 1e6)) : 0.0;
+*time_ms_out = time_ms;
+*gflops_out = (time_ms > 0.0) ? ({flops_expr} / (time_ms * 1e6)) : 0.0;
 """
 
-    full_code = f"{header}\nextern \"C\" void {func_name}({func_args_str}) {{\n{computation_body}\n}}\n"
+    
+
+    
+    full_code = f"""{header}
+
+template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K>
+void compute_matrix_multi(
+    const float* A_data, const float* B_data, float* C_data,
+    float** A_cache, float** B_cache, float** C_cache,
+    double* gflops_out, double* time_ms_out,
+    int M, int N, int K)
+{{
+    {computation_body}
+}}
+
+extern "C" void {func_name}({func_args_str}) {{
+
+    compute_matrix_multi<{bm},{bn},{bk},{it_m},{it_n},{it_k}>(
+        A_data, B_data, C_data,
+        A_cache, B_cache, C_cache,
+        gflops_out, time_ms_out,
+        M, N, K
+    );
+}}
+"""
     return full_code, func_name, ordered_arg_names
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
