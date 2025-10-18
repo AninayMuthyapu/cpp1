@@ -40,6 +40,8 @@ def compute_optimized(outputs, out_matrix_obj, bm=64, bn=64, bk=64, it_m=4, it_n
         return "", "", []
 
     out_node = outputs[0]
+    lhs, rhs = out_node.operands
+    computation_body = None
     all_inputs, all_dims = get_graph_io(outputs)
     all_matrices_in_graph = find_all_matrices_in_expr(out_node) | {out_matrix_obj}
 
@@ -64,11 +66,19 @@ def compute_optimized(outputs, out_matrix_obj, bm=64, bn=64, bk=64, it_m=4, it_n
     func_args_map['M'] = "int M"
     func_args_map['N'] = "int N"
     func_args_map['K'] = "int K"
-    template_decl = (
-    "template<int BM, int BN, int BK, int IT_M, int IT_N, int IT_K, "
     
-)
-    ordered_arg_names = sorted(func_args_map.keys())
+    # ordered_arg_names = sorted(func_args_map.keys())
+    ordered_arg_names = [
+        f"{lhs.name}_data",
+        f"{rhs.name}_data",
+        f"{out_matrix_obj.name}_data",
+        "A_cache", "B_cache", "C_cache",
+        "gflops_out", "time_ms_out",
+        "M", "N", "K",
+        "max_threads"
+    ]
+    ordered_arg_names = [name for name in ordered_arg_names if name in func_args_map]
+
     func_args_str = ", ".join(func_args_map[name] for name in ordered_arg_names)
     func_name = f"{out_matrix_obj.name}_matmul"
 
@@ -91,16 +101,19 @@ def compute_optimized(outputs, out_matrix_obj, bm=64, bn=64, bk=64, it_m=4, it_n
     n_name = var_map.get(N_dim.name, str(N_dim))
     k_name = var_map.get(K_dim_lhs.name, str(K_dim_lhs))
     
-    A_ptr = var_map[lhs.name]
-    B_ptr = var_map[rhs.name]
-    C_ptr = var_map[out_matrix_obj.name]
+    # A_ptr = var_map[lhs.name]
+    # B_ptr = var_map[rhs.name]
+    # C_ptr = var_map[out_matrix_obj.name]
+    A_ptr = "A_data"
+    B_ptr = "B_data"
+    C_ptr = "C_data"
 
     flops_expr = f"(2.0 * (float)M * (float)N * (float)K)"
     
 
 
 
-    if isinstance(lhs, GeneralMatrix) and isinstance(rhs, GeneralMatrix) and isinstance(out_matrix_obj, GeneralMatrix):
+    if isinstance(lhs, GeneralMatrix) and isinstance(rhs, GeneralMatrix) and isinstance(out_matrix_obj, GeneralMatrix) :
         computation_body = f"""
 
 const int VEC_WIDTH = 8;
@@ -305,13 +318,13 @@ for (int i = 0; i < M; i += BM) {{
         for (int ii_t = 0; ii_t < curr_BM; ii_t += IT_M) {{
             for (int jj_t = 0; jj_t < curr_BN; jj_t += IT_N) {{
 
-                // Load diagonal vectors for IT_M rows
+                
                 __m256 diag_tile[IT_M];
                 for (int ii = 0; ii < IT_M && (ii_t + ii) < curr_BM; ++ii) {{
                     diag_tile[ii] = _mm256_broadcast_ss(&local_diag_buf[ii_t + ii]);
                 }}
 
-                // Process columns in vector_width (8) chunks
+                
                 for (int jj = 0; jj < IT_N && (jj_t + jj) < curr_BN; jj += 8) {{
                     int cols_avail = curr_BN - (jj_t + jj);
                     int process = (cols_avail >= 8) ? 8 : cols_avail;
@@ -481,7 +494,7 @@ gflops_val = (2.0 * M * N) / (time_val_ms * 1e6);
             float* local_A = A_cache[thread_id];
             float* local_B = B_cache[thread_id];
 
-            // Initialize local_C from global C
+            
             for (int i = 0; i < BM; ++i) {{
                 int global_row = m1 + i;
                 memcpy(&local_C[i * BN], &{C_ptr}[global_row * N + n1], BN * sizeof(float));
@@ -496,14 +509,8 @@ gflops_val = (2.0 * M * N) / (time_val_ms * 1e6);
                             memcpy(&local_A[mm * BK], &{A_ptr}[global_row * K + k1], BK * sizeof(float));
                         }}
                     }}
-                }} else {{
-                    for (int mm = 0; mm < BM; ++mm) {{
-                        int global_row = m1 + mm;
-
-                        int valid_cols = std::min(BK, K - k1);
-                        memcpy(&local_A[mm * BK], &{A_ptr}[global_row * K + k1], valid_cols * sizeof(float));
-                    }}
-                }}
+                }} 
+                
                 if  (N%BN==0 && K%BK==0 ) {{
                     int tile_diag_start = k1 - n1;
                     int tile_diag_end   = k1 + BK - n1;
@@ -626,398 +633,136 @@ gflops_val = (2.0 * M * N) / (time_val_ms * 1e6);
 
 
 
-    elif isinstance(lhs,SymmetricMatrix) and isinstance(rhs,GeneralMatrix) and isinstance(out_matrix_obj,GeneralMatrix):
-        computation_body = f"""
+    elif isinstance(lhs, SymmetricMatrix) and isinstance(rhs, GeneralMatrix) and isinstance(out_matrix_obj, GeneralMatrix):
+    
+         computation_body = f"""
     constexpr int vector_width = 8;
-assert(M == K && "For symmetric A, M must equal K");
-auto start = high_resolution_clock::now();
 
-#pragma omp parallel for collapse(2) schedule(static)
-for (int m1 = 0; m1 < M; m1 += BM) {{
-    for (int n1 = 0; n1 < N; n1 += BN) {{
-        int thread_id = omp_get_thread_num();
-        float* local_C = C_cache[thread_id];
-        float* local_A = A_cache[thread_id];
-        float* local_B = B_cache[thread_id];
+    auto start = high_resolution_clock::now();
 
-        
-        for (int i = 0; i < BM; ++i) {{
-            int global_row = m1 + i;
-            int valid_cols = min(BN, N - n1);
-            memcpy(&local_C[i * BN], &C[global_row * N + n1], valid_cols * sizeof(float));
-        }}
+    #pragma omp parallel for collapse(2) schedule(static)
+    for (int m1 = 0; m1 < M; m1 += BM) {{
+        for (int n1 = 0; n1 < N; n1 += BN) {{
+            int thread_id = omp_get_thread_num();
+            float* local_C = C_cache[thread_id];
+            float* local_A = A_cache[thread_id]; // Cache for A_sym (BM x BK)
+            float* local_B = B_cache[thread_id]; // Cache for B_gen (BK x BN)
 
-        for (int k1 = 0; k1 < K; k1 += BK) {{
+            for (int i = 0; i < BM; ++i) {{
+    memset(&local_C[i * BN], 0, BN * sizeof(float));
+}}
 
-            // >>> LOAD A (now symmetric) with symmetry logic <<<
-            if constexpr (MIsMultipleOfBM && KIsMultipleOfBK) {{
-                int tile_diag_start = m1 - k1;
-                int tile_diag_end   = m1 + BM - k1;
 
-                if (tile_diag_end <= 0) {{
-                    // All rows above all columns → 100% direct (j >= i)
-                    for (int mm = 0; mm < BM; ++mm) {{
-                        int global_i = m1 + mm;
-                        float* dst = &local_A[mm * BK];
-                        int row_off = global_i * K - (global_i * (global_i - 1)) / 2;
-                        memcpy(dst, &A_sym[row_off + (k1 - global_i)], BK * sizeof(float));
-                    }}
-                }} else if (tile_diag_start >= BK) {{
-                    // All rows below all columns → 100% symmetry (j < i → A[i][j] = A[j][i])
-                    for (int mm = 0; mm < BM; ++mm) {{
-                        int global_i = m1 + mm;
-                        float* dst = &local_A[mm * BK];
-                        int gj = k1;
-                        int off = gj * K - (gj * (gj - 1)) / 2 + (global_i - gj);
-                        for (int j = 0; j < BK; ++j) {{
-                            dst[j] = A_sym[off];
-                            off += (K - gj - 1);
-                            ++gj;
-                        }}
-                    }}
-                }} else {{
-                    // Mixed: per-row split
-                    for (int mm = 0; mm < BM; ++mm) {{
-                        int global_i = m1 + mm;
-                        float* dst = &local_A[mm * BK];
-                        int diag_local = global_i - k1;
-                        int row_off = global_i * K - (global_i * (global_i - 1)) / 2;
+            for (int k1 = 0; k1 < K; k1 += BK) {{ // Note: K must equal M for this operation
 
-                        // Left: symmetry (k < global_i)
-                        if (diag_local > 0) {{
-                            int end = diag_local < BK ? diag_local : BK;
-                            int gj = k1;
-                            int off = gj * K - (gj * (gj - 1)) / 2 + (global_i - gj);
-                            for (int j = 0; j < end; ++j, ++gj) {{
-                                dst[j] = A_sym[off];
-                                off += (K - gj - 1);
-                            }}
-                        }}
-
-                        // Right: direct (k >= global_i)
-                        if (diag_local < BK) {{
-                            int start = diag_local > 0 ? diag_local : 0;
-                            int src_off = k1 + start - global_i;
-                            memcpy(&dst[start], &A_sym[row_off + src_off], (BK - start) * sizeof(float));
-                        }}
-                    }}
-                }}
-            }} else {{
-                // Fallback for non-multiples: load A with symmetry per row
-                for (int mm = 0; mm < BM; ++mm) {{
-                    int global_i = m1 + mm;
-                    float* dst = &local_A[mm * BK];
-                    int valid_K = min(BK, K - k1);
-                    // Load row 'global_i' of symmetric A for columns [k1, k1+valid_K)
-                    for (int j = 0; j < valid_K; ++j) {{
-                        int col = k1 + j;
-                        if (col >= global_i) {{
-                            // Direct: A[i][j] stored at offset
-                            int off = global_i * K - (global_i * (global_i - 1)) / 2 + (col - global_i);
-                            dst[j] = A_sym[off];
-                        }} else {{
-                            // Symmetry: A[i][j] = A[j][i]
-                            int off = col * K - (col * (col - 1)) / 2 + (global_i - col);
-                            dst[j] = A_sym[off];
-                        }}
-                    }}
-                    // Zero pad if needed (optional, but safe)
-                    if (valid_K < BK) {{
-                        memset(&dst[valid_K], 0, (BK - valid_K) * sizeof(float));
-                    }}
-                }}
-            }}
-
-            // >>> LOAD B (now general) as dense <<<
-            if (NIsMultipleOfBN && KIsMultipleOfBK) {{
+                // --- Load General B block into local_B (BK x BN) ---
+                // This is a standard block copy from the general matrix B.
                 for (int kk = 0; kk < BK; ++kk) {{
                     int global_k = k1 + kk;
-                    memcpy(&local_B[kk * BN], &B[global_k * N + n1], BN * sizeof(float));
-                }}
-            }} else {{
-                for (int kk = 0; kk < BK; ++kk) {{      
-                    int global_k = k1 + kk;
-                    int valid_cols = min(BN, N - n1);
-                    memcpy(&local_B[kk * BN], &B[global_k * N + n1], valid_cols * sizeof(float));
-                    if (valid_cols < BN) {{
-                        memset(&local_B[kk * BN + valid_cols], 0, (BN - valid_cols) * sizeof(float));
+                    if (global_k < K) {{
+                        int valid_cols = std::min(BN, N - n1);
+                        memcpy(&local_B[kk * BN], &{B_ptr}[global_k * N + n1], valid_cols * sizeof(float));
+                        if (valid_cols < BN) {{
+                             memset(&local_B[kk * BN + valid_cols], 0, (BN - valid_cols) * sizeof(float));
+                        }}
+                    }} else {{
+                        // Pad with zeros if k1+BK goes beyond K
+                        memset(&local_B[kk * BN], 0, BN * sizeof(float));
                     }}
                 }}
-            }}
 
-            // Microkernel: SAME AS BEFORE
-            for (int i = 0; i < BM; i += IT_M) {{
-                for (int j = 0; j < BN; j += IT_N) {{
-                    __m256 C_tile[IT_M][IT_N / vector_width];
-                    // Load C
-                    for (int mm = 0; mm < IT_M; ++mm) {{
-                        for (int nn = 0; nn < IT_N / vector_width; ++nn) {{
-                            C_tile[mm][nn] = _mm256_loadu_ps(&local_C[(i + mm) * BN + j + nn * vector_width]);
+                // --- CORRECTED: Load Symmetric A block into local_A (BM x BK) ---
+                // This logic correctly reconstructs the tile from compact storage, handling all cases.
+                for (int mm = 0; mm < BM; ++mm) {{
+                    int global_m = m1 + mm;
+                    float* dst = &local_A[mm * BK];
+                    int diag_local = global_m - k1;
+                    // M is the dimension of the symmetric matrix A
+                    int row_off = global_m * M - (global_m * (global_m - 1)) / 2;
+
+                    // Part 1: Left of diagonal (k < global_m). Data is fetched from other rows' packed storage.
+                    if (diag_local > 0) {{
+                        int end = diag_local < BK ? diag_local : BK;
+                        int gk = k1; // global_k starts at k1
+                        // To get A[global_m][gk], we fetch A[gk][global_m]
+                        int off = gk * M - (gk * (gk - 1)) / 2 + (global_m - gk);
+                        for (int k = 0; k < end; ++k, ++gk) {{
+                            dst[k] = {A_ptr}[off];
+                            off += (M - gk - 1); // Move to the next element in the column, i.e., A[gk+1][global_m]
                         }}
                     }}
-                    // K loop
-                    for (int p = 0; p < BK; p += IT_K) {{
-                        for (int kk_inner = 0; kk_inner < IT_K; ++kk_inner) {{
-                            int depth = p + kk_inner;
-                            __m256 A_vec[IT_M];
-                            for (int mm = 0; mm < IT_M; ++mm) {{
-                                A_vec[mm] = _mm256_broadcast_ss(&local_A[(i + mm) * BK + depth]);
-                            }}
-                            __m256 B_vec[IT_N / vector_width];
+
+                    // Part 2: On or Right of diagonal (k >= global_m). Data is contiguous in packed storage.
+                    if (diag_local < BK) {{
+                        int start = diag_local > 0 ? diag_local : 0;
+                        int src_off = k1 + start - global_m;
+                        memcpy(&dst[start], &{A_ptr}[row_off + src_off], (BK - start) * sizeof(float));
+                    }}
+                }}
+
+                // --- Microkernel (C += A * B) ---
+                // This logic is correct and does not need to change.
+                for (int i = 0; i <BM; i += IT_M) {{
+                    for (int j = 0; j < BN; j += IT_N) {{
+                        __m256 C_tile[IT_M][IT_N / vector_width];
+                        // Load C tile
+                        for (int mm = 0; mm < IT_M; ++mm) {{
                             for (int nn = 0; nn < IT_N / vector_width; ++nn) {{
-                                B_vec[nn] = _mm256_loadu_ps(&local_B[depth * BN + j + nn * vector_width]);
+                                C_tile[mm][nn] = _mm256_loadu_ps(&local_C[(i + mm) * BN + j + nn * vector_width]);
                             }}
-                            for (int mm = 0; mm < IT_M; ++mm) {{
+                        }}
+                        // K loop
+                        for (int p = 0; p < BK; p += IT_K) {{
+                            for (int kk_inner = 0; kk_inner < IT_K; ++kk_inner) {{
+                                int depth = p + kk_inner;
+                                // Broadcast from local_A (Symmetric)
+                                __m256 A_vec[IT_M];
+                                for (int mm = 0; mm < IT_M; ++mm) {{
+                                    A_vec[mm] = _mm256_broadcast_ss(&local_A[(i + mm) * BK + depth]);
+                                }}
+                                // Load from local_B (General)
+                                __m256 B_vec[IT_N / vector_width];
                                 for (int nn = 0; nn < IT_N / vector_width; ++nn) {{
-                                    C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_tile[mm][nn]);
+                                    B_vec[nn] = _mm256_loadu_ps(&local_B[depth * BN + j + nn * vector_width]);
+                                }}
+                                // FMA
+                                for (int mm = 0; mm < IT_M; ++mm) {{
+                                    for (int nn = 0; nn < IT_N / vector_width; ++nn) {{
+                                        C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_tile[mm][nn]);
+                                    }}
                                 }}
                             }}
                         }}
-                    }}
-                    // Store C
-                    for (int mm = 0; mm < IT_M; ++mm) {{
-                        for (int nn = 0; nn < IT_N / vector_width; ++nn) {{
-                            _mm256_storeu_ps(&local_C[(i + mm) * BN + j + nn * vector_width], C_tile[mm][nn]);
+                        // Store C tile
+                        for (int mm = 0; mm < IT_M; ++mm) {{
+                            for (int nn = 0; nn < IT_N / vector_width; ++nn) {{
+                                _mm256_storeu_ps(&local_C[(i + mm) * BN + j + nn * vector_width], C_tile[mm][nn]);
+                            }}
                         }}
                     }}
                 }}
+            }} // end k1
+
+            // Write back C tile
+            for (int i = 0; i < BM; ++i) {{
+                int global_row = m1 + i;
+                int valid_cols = std::min(BN, N - n1);
+                memcpy(&{C_ptr}[global_row * N + n1], &local_C[i * BN], valid_cols * sizeof(float));
             }}
         }}
-
-        // Write back
-        for (int i = 0; i < BM; ++i) {{
-            int global_row = m1 + i;
-            int valid_cols = min(BN, N - n1);
-            memcpy(&C[global_row * N + n1], &local_C[i * BN], valid_cols * sizeof(float));
-        }}
     }}
-}}
 
-auto end = high_resolution_clock::now();
-time_ms = duration<double, milli>(end - start).count();
-gflops = (2.0 * M * N * K) / (time_ms * 1e6);
+    auto end = high_resolution_clock::now();
+    double time_ms = duration<double, std::milli>(end - start).count();
+    *time_ms_out = time_ms;
+    *gflops_out = (time_ms > 0.0) ? ({flops_expr} / (time_ms * 1e6)) : 0.0;
+    """
 
 
-        """
     
 
 
-    elif isinstance(lhs,SymmetricMatrix) and isinstance(rhs,SymmetricMatrix) and isinstance(out_matrix_obj,SymmetricMatrix):
-        computation_body = f"""
-        constexpr int vector_width = 8;  
-        constexpr int vector_width = 8;
-assert(M == K && K == N && "For symmetric A and B, M == K == N must hold");
-auto start = high_resolution_clock::now();
-
-#pragma omp parallel for collapse(2) schedule(static)
-for (int m1 = 0; m1 < M; m1 += BM) {{
-    for (int n1 = 0; n1 < N; n1 += BN) {{
-        int thread_id = omp_get_thread_num();
-        float* local_C = C_cache[thread_id];
-        float* local_A = A_cache[thread_id];
-        float* local_B = B_cache[thread_id];
-
-        // Initialize local_C from global C
-        for (int i = 0; i < BM; ++i) {{
-            int global_row = m1 + i;
-            int valid_cols = min(BN, N - n1);
-            memcpy(&local_C[i * BN], &C[global_row * N + n1], valid_cols * sizeof(float));
-        }}
-
-        for (int k1 = 0; k1 < K; k1 += BK) {{
-
-            // >>> LOAD A (symmetric) with symmetry logic <<<
-            if constexpr (MIsMultipleOfBM && KIsMultipleOfBK) {{
-                int tile_diag_start = m1 - k1;
-                int tile_diag_end   = m1 + BM - k1;
-
-                if (tile_diag_end <= 0) {{
-                    // All rows above all columns → 100% direct (k >= i)
-                    for (int mm = 0; mm < BM; ++mm) {{
-                        int global_i = m1 + mm;
-                        float* dst = &local_A[mm * BK];
-                        int row_off = global_i * K - (global_i * (global_i - 1)) / 2;
-                        memcpy(dst, &A_sym[row_off + (k1 - global_i)], BK * sizeof(float));
-                    }}
-                }} else if (tile_diag_start >= BK) {{
-                    // All rows below all columns → 100% symmetry (k < i → A[i][k] = A[k][i])
-                    for (int mm = 0; mm < BM; ++mm) {{
-                        int global_i = m1 + mm;
-                        float* dst = &local_A[mm * BK];
-                        int gk = k1;
-                        int off = gk * K - (gk * (gk - 1)) / 2 + (global_i - gk);
-                        for (int j = 0; j < BK; ++j) {{
-                            dst[j] = A_sym[off];
-                            off += (K - gk - 1);
-                            ++gk;
-                        }}
-                    }}
-                }} else {{
-                    // Mixed: per-row split
-                    for (int mm = 0; mm < BM; ++mm) {{
-                        int global_i = m1 + mm;
-                        float* dst = &local_A[mm * BK];
-                        int diag_local = global_i - k1;
-                        int row_off = global_i * K - (global_i * (global_i - 1)) / 2;
-
-                        // Left: symmetry (k < global_i)
-                        if (diag_local > 0) {{
-                            int end = diag_local < BK ? diag_local : BK;
-                            int gk = k1;
-                            int off = gk * K - (gk * (gk - 1)) / 2 + (global_i - gk);
-                            for (int j = 0; j < end; ++j, ++gk) {{
-                                dst[j] = A_sym[off];
-                                off += (K - gk - 1);
-                            }}
-                        }}
-
-                        // Right: direct (k >= global_i)
-                        if (diag_local < BK) {{
-                            int start = diag_local > 0 ? diag_local : 0;
-                            int src_off = k1 + start - global_i;
-                            memcpy(&dst[start], &A_sym[row_off + src_off], (BK - start) * sizeof(float));
-                        }}
-                    }}
-                }}
-            }} else {{  
-                // Fallback: load A with per-element symmetry
-                for (int mm = 0; mm < BM; ++mm) {{
-                    int global_i = m1 + mm;
-                    for (int j = 0; j < BK; ++j) {{
-                        int col = k1 + j;
-                        if (col >= global_i) {{
-                            // Direct
-                            int off = global_i * K - (global_i * (global_i - 1)) / 2 + (col - global_i);
-                            local_A[mm * BK + j] = A_sym[off];
-                        }} else {{
-                            // Symmetry
-                            int off = col * K - (col * (col - 1)) / 2 + (global_i - col);
-                            local_A[mm * BK + j] = A_sym[off];
-                        }}
-                    }}
-                }}
-            }}
-
-            // >>> LOAD B (symmetric) — same as original <<<
-            if constexpr (NIsMultipleOfBN && KIsMultipleOfBK) {{
-                int tile_diag_start = k1 - n1;
-                int tile_diag_end   = k1 + BK - n1;
-
-                if (tile_diag_end <= 0) {{
-                    // All rows above all columns → 100% direct
-                    for (int kk = 0; kk < BK; ++kk) {{
-                        int global_k = k1 + kk;
-                        float* dst = &local_B[kk * BN];
-                        int row_off = global_k * N - (global_k * (global_k - 1)) / 2;
-                        memcpy(dst, &B_sym[row_off + (n1 - global_k)], BN * sizeof(float));
-                    }}
-                }} else if (tile_diag_start >= BN) {{
-                    // All rows below all columns → 100% symmetry
-                    for (int kk = 0; kk < BK; ++kk) {{
-                        int global_k = k1 + kk;
-                        float* dst = &local_B[kk * BN];
-                        int gj = n1;
-                        int off = gj * N - (gj * (gj - 1)) / 2 + (global_k - gj);
-                        for (int j = 0; j < BN; ++j) {{
-                            dst[j] = B_sym[off];
-                            off += (N - gj - 1);
-                            ++gj;
-                        }}
-                    }}
-                }} else {{
-                    // Mixed: per-row split
-                    for (int kk = 0; kk < BK; ++kk) {{
-                        int global_k = k1 + kk;
-                        float* dst = &local_B[kk * BN];
-                        int diag_local = global_k - n1;
-                        int row_off = global_k * N - (global_k * (global_k - 1)) / 2;
-
-                        // Left: symmetry (j < global_k)
-                        if (diag_local > 0) {{
-                            int end = diag_local < BN ? diag_local : BN;
-                            int gj = n1;
-                            int off = gj * N - (gj * (gj - 1)) / 2 + (global_k - gj);
-                            for (int j = 0; j < end; ++j, ++gj) {{
-                                dst[j] = B_sym[off];
-                                off += (N - gj - 1);
-                            }}
-                        }}
-
-                        // Right: direct (j >= global_k)
-                        if (diag_local < BN) {{
-                            int start = diag_local > 0 ? diag_local : 0;
-                            int src_off = n1 + start - global_k;
-                            memcpy(&dst[start], &B_sym[row_off + src_off], (BN - start) * sizeof(float));
-                        }}
-                    }}
-                }}
-            }} else {{
-                // Fallback for B
-                for (int kk = 0; kk < BK; ++kk) {{
-                    int global_k = k1 + kk;
-                    for (int j = 0; j < BN; ++j) {{
-                        int col = n1 + j;
-                        if (col >= global_k) {{
-                            int off = global_k * N - (global_k * (global_k - 1)) / 2 + (col - global_k);
-                            local_B[kk * BN + j] = B_sym[off];
-                        }} else {{
-                            int off = col * N - (col * (col - 1)) / 2 + (global_k - col);
-                            local_B[kk * BN + j] = B_sym[off];
-                        }}
-                    }}
-                }}
-            }}
-
-            // >>> Microkernel: UNCHANGED <<<
-            for (int i = 0; i < BM; i += IT_M) {{
-                for (int j = 0; j < BN; j += IT_N) {{
-                    __m256 C_tile[IT_M][IT_N / vector_width];
-                    for (int mm = 0; mm < IT_M; ++mm) {{
-                        for (int nn = 0; nn < IT_N / vector_width; ++nn) {{
-                            C_tile[mm][nn] = _mm256_loadu_ps(&local_C[(i + mm) * BN + j + nn * vector_width]);
-                        }}
-                    }}
-                    for (int p = 0; p < BK; p += IT_K) {{
-                        for (int kk_inner = 0; kk_inner < IT_K; ++kk_inner) {{
-                            int depth = p + kk_inner;
-                            __m256 A_vec[IT_M];
-                            for (int mm = 0; mm < IT_M; ++mm) {{
-                                A_vec[mm] = _mm256_broadcast_ss(&local_A[(i + mm) * BK + depth]);
-                            }}
-                            __m256 B_vec[IT_N / vector_width];
-                            for (int nn = 0; nn < IT_N / vector_width; ++nn) {{
-                                B_vec[nn] = _mm256_loadu_ps(&local_B[depth * BN + j + nn * vector_width]);
-                            }}
-                            for (int mm = 0; mm < IT_M; ++mm) {{
-                                for (int nn = 0; nn < IT_N / vector_width; ++nn) {{
-                                    C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_tile[mm][nn]);
-                                }}
-                            }}
-                        }}
-                    }}
-                    for (int mm = 0; mm < IT_M; ++mm) {{
-                        for (int nn = 0; nn < IT_N / vector_width; ++nn) {{
-                            _mm256_storeu_ps(&local_C[(i + mm) * BN + j + nn * vector_width], C_tile[mm][nn]);
-                        }}
-                    }}
-                }}
-            }}
-        }}
-
-        // Write back
-        for (int i = 0; i < BM; ++i) {{
-            int global_row = m1 + i;
-            int valid_cols = min(BN, N - n1);
-            memcpy(&C[global_row * N + n1], &local_C[i * BN], valid_cols * sizeof(float));
-        }}
-    }}
-}}
-
-auto end = high_resolution_clock::now();
-time_ms = duration<double, milli>(end - start).count();
-gflops = (2.0 * M * N * K) / (time_ms * 1e6);
-
-        """
+    
     
 
 
@@ -1058,7 +803,7 @@ void compute_matrix_multi(
 extern "C" void {func_name}({func_args_str}) {{
 
     compute_matrix_multi<{bm},{bn},{bk},{it_m},{it_n},{it_k}>(
-        A_data, B_data, C_data,
+        {lhs.name}_data, {rhs.name}_data, {out_matrix_obj.name}_data,
         A_cache, B_cache, C_cache,
         gflops_out, time_ms_out,
         M, N, K
