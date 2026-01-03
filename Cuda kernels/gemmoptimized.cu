@@ -57,9 +57,9 @@ __device__ void copy_Reg_to_SmemA(const float RegsA_Prefetch[(BM*BK)/NumThreads]
     for (int kEl = 0; kEl < KElemsPerThread; kEl++) {
       uint tm = mEl*ThreadsStrideM + (threadIdx.x/ThreadsStrideK);
       uint tk = (threadIdx.x%ThreadsStrideK)*VectorElems;
-      
-      
-      int StrideA = BM +1;
+
+
+      int StrideA = BM + 4;
       SmemA[(tk + 0) * StrideA + tm] = RegsA_Prefetch[mEl*VectorElems + 0];
       SmemA[(tk + 1) * StrideA + tm] = RegsA_Prefetch[mEl*VectorElems + 1];
       SmemA[(tk + 2) * StrideA + tm] = RegsA_Prefetch[mEl*VectorElems + 2];
@@ -117,7 +117,7 @@ __device__ void copy_Reg_to_SmemB(const float RegsB_Prefetch[(BN*BK)/NumThreads]
 template<int VectorElems,int BM,int RegM>
 __device__ void load_RegA_from_SmemA(const float* SmemA, float* Areg,uint thread_m, uint rk)
 {
-    int StrideA = BM + 1;
+    int StrideA = BM + 4;
 
     #pragma unroll
     for (int rm = 0; rm < RegM; ++rm) {
@@ -152,7 +152,7 @@ __global__ void kernel_tiled_float(const float *A, const float *B, float *C, int
   if (row >= M || col >= N) return; 
 
   
-  size_t SmemASize = (BM + 1) * BK;
+  size_t SmemASize = (BM + 4) * BK;
   size_t SmemBSize = (BN + 4) * BK;
   
   float* SmemA = (float*)&SharedMem[0];
@@ -258,7 +258,7 @@ struct KernelOptimized {
         dim3 blocksPerGrid(gridX, gridY);
         
         
-        size_t smemASize = (BM + 1) * BK * sizeof(float);
+        size_t smemASize = (BM + 4) * BK * sizeof(float);
         size_t smemBSize = (BN + 4) * BK * sizeof(float);
         size_t sharedMemBytes = (smemASize + smemBSize) * Pipeline;
         
@@ -371,3 +371,5 @@ int main() {
 //shared memory in my laptop gpu is 48kb
 //so the maximum pipeline is 2 for BM=128, BN=128, BK=16
 //total usage will will be 32KB
+//sudo /usr/local/cuda/bin/ncu -f -o profile.ncu-rep --import-source yes --set full ./gemm10
+///usr/local/cuda/bin/ncu-ui
