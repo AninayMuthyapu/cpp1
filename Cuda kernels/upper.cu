@@ -1,3 +1,5 @@
+
+
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 #include <cstdio>
@@ -53,54 +55,18 @@ __device__ __forceinline__ float ld_global_f32(const float* ptr) {
 }
 
 template<int VectorElems, int NumThreads, int BM, int BK>
-__device__ void copy_A_to_Reg(const float *A, float RegsA_Prefetch[(BM*BK)/NumThreads], int M, int K, int row_m_start, int col_k_start) {
+__device__ void copy_A_to_Reg(const float *A, float RegsA_Prefetch[(BM*BK)/NumThreads], int M, int K, int row, int col) {
   uint ThreadsStrideK = BK/VectorElems;
   uint ThreadsStrideM = (NumThreads > ThreadsStrideK) ? NumThreads/ThreadsStrideK : 1;
+  uint KElemsPerThread = (NumThreads > ThreadsStrideK) ? 1 : (NumThreads/ThreadsStrideK);
   uint MElemsPerThread = (NumThreads > ThreadsStrideK) ? BM/(ThreadsStrideM) : 1;
 
   for (int mEl = 0; mEl < MElemsPerThread; mEl++) {
+    for (int kEl = 0; kEl < KElemsPerThread; kEl++) {
       uint tm = mEl*ThreadsStrideM + (threadIdx.x/ThreadsStrideK);
-      uint tk = (threadIdx.x%ThreadsStrideK)*VectorElems; 
-      
-      int global_m = row_m_start + tm;
-      int global_k_base = col_k_start + tk;
-
-      float temp_regs[4] = {0.0f};
-
-      if (global_m < M && global_k_base < K) {
-          
-          size_t m_idx = (size_t)global_m;
-          size_t row_start = m_idx * K - ((m_idx * (m_idx - 1)) >> 1);
-
-          if (global_k_base >= global_m) {
-              size_t offset = row_start + (size_t)(global_k_base - global_m);
-              const float* ptr = &A[offset];
-
-              if ( (offset % 4 == 0) && (global_k_base + 4 <= K) ) {
-                 ld_global_vec4((const float4*)ptr, temp_regs);
-              } else {
-                 #pragma unroll
-                 for(int v=0; v<4; v++) {
-                     if(global_k_base + v < K) temp_regs[v] = ld_global_f32(ptr + v);
-                 }
-              }
-          } 
-          else {
-              #pragma unroll
-              for(int v = 0; v < VectorElems; ++v) {
-                  int global_k = global_k_base + v;
-                  if (global_k >= global_m) { 
-                      size_t offset = row_start + (size_t)(global_k - global_m);
-                      temp_regs[v] = ld_global_f32(&A[offset]);
-                  }
-              }
-          }
-      }
-      
-      RegsA_Prefetch[mEl*VectorElems + 0] = temp_regs[0];
-      RegsA_Prefetch[mEl*VectorElems + 1] = temp_regs[1];
-      RegsA_Prefetch[mEl*VectorElems + 2] = temp_regs[2];
-      RegsA_Prefetch[mEl*VectorElems + 3] = temp_regs[3];
+      uint tk = (threadIdx.x%ThreadsStrideK)*VectorElems;
+      ld_global_vec4((const float4*)&A[(row + tm)*K + col + tk], &RegsA_Prefetch[mEl*VectorElems]);
+    }
   }
 }
 
@@ -120,7 +86,6 @@ __device__ void copy_B_to_Reg(const float *B, float RegsB_Prefetch[(BN*BK)/NumTh
     float temp_regs[4] = {0.0f};
 
     if (global_k < K && global_n_base < N) {
-        
         size_t k_idx = (size_t)global_k;
         size_t row_start = k_idx * N - ((k_idx * (k_idx - 1)) >> 1);
 
@@ -228,6 +193,9 @@ __global__ void kernel_tiled_float(const float *A, const float *B, float *C, int
   float RegsA_Prefetch[(BM*BK)/NumThreads] = {0};
   float RegsB_Prefetch[(BK*BN)/NumThreads] = {0};
 
+  int K_limit = col + BN;
+  if (K_limit > K) K_limit = K;
+
   if (Pipeline > 1) {
     copy_A_to_Reg<VectorElems, NumThreads, BM, BK>(A, RegsA_Prefetch, M, K, row, 0);
     copy_B_to_Reg<VectorElems, NumThreads, BN, BK>(B, RegsB_Prefetch, K, N, 0, col);
@@ -236,7 +204,7 @@ __global__ void kernel_tiled_float(const float *A, const float *B, float *C, int
   }
   __syncthreads();
 
-  for (int k = 0; k < K - BK * (Pipeline-1); k += BK) {
+  for (int k = 0; k < K_limit - BK * (Pipeline-1); k += BK) {
     uint nextStage = Pipeline > 1 ? (stage^1) : 0;
     if (Pipeline >= 1) {
       copy_A_to_Reg<VectorElems, NumThreads, BM, BK>(A, RegsA_Prefetch, M, K, row, k + BK * (Pipeline - 1));
@@ -348,14 +316,12 @@ int main() {
     int M = 4096, N = 4096, K = 4096;
     printf("Matrix Size: %d x %d x %d\n", M, N, K);
 
-    size_t size_A_p = ((size_t)M * (M + 1) / 2) * sizeof(float); 
     size_t size_B_p = ((size_t)N * (N + 1) / 2) * sizeof(float); 
     size_t size_A_s = (size_t)M * K * sizeof(float);
     size_t size_B_s = (size_t)K * N * sizeof(float);
     size_t size_C   = (size_t)M * N * sizeof(float);
 
     std::vector<float> h_A_s(M * K);
-    std::vector<float> h_A_p((size_t)M * (M + 1) / 2);
     std::vector<float> h_B_s(K * N);
     std::vector<float> h_B_p((size_t)N * (N + 1) / 2);
     std::vector<float> h_C_ref(M * N);
@@ -363,16 +329,11 @@ int main() {
     std::vector<float> h_C_cublas(M * N);
 
     srand(2024);
-    size_t p_idx_a = 0;
-    for(int r = 0; r < M; r++) {
-        for(int c = 0; c < K; c++) {
-            if (c >= r) {
-                float val = (rand()%10)/10.0f;
-                h_A_s[r * K + c] = val;
-                h_A_p[p_idx_a++] = val;
-            } else h_A_s[r * K + c] = 0.0f; 
-        }
+    
+    for(int i = 0; i < M * K; i++) {
+        h_A_s[i] = (rand()%10)/10.0f;
     }
+
     size_t p_idx_b = 0;
     for(int r = 0; r < K; r++) {
         for(int c = 0; c < N; c++) {
@@ -384,9 +345,8 @@ int main() {
         }
     }
 
-    float *d_A_s, *d_A_p, *d_B_s, *d_B_p, *d_C, *d_C_ref, *d_C_cublas;
+    float *d_A_s, *d_B_s, *d_B_p, *d_C, *d_C_ref, *d_C_cublas;
     CUDA_ERROR_CHECK(cudaMalloc(&d_A_s, size_A_s));
-    CUDA_ERROR_CHECK(cudaMalloc(&d_A_p, size_A_p));
     CUDA_ERROR_CHECK(cudaMalloc(&d_B_s, size_B_s));
     CUDA_ERROR_CHECK(cudaMalloc(&d_B_p, size_B_p));
     CUDA_ERROR_CHECK(cudaMalloc(&d_C, size_C));
@@ -394,7 +354,6 @@ int main() {
     CUDA_ERROR_CHECK(cudaMalloc(&d_C_cublas, size_C));
 
     CUDA_ERROR_CHECK(cudaMemcpy(d_A_s, h_A_s.data(), size_A_s, cudaMemcpyHostToDevice));
-    CUDA_ERROR_CHECK(cudaMemcpy(d_A_p, h_A_p.data(), size_A_p, cudaMemcpyHostToDevice));
     CUDA_ERROR_CHECK(cudaMemcpy(d_B_s, h_B_s.data(), size_B_s, cudaMemcpyHostToDevice));
     CUDA_ERROR_CHECK(cudaMemcpy(d_B_p, h_B_p.data(), size_B_p, cudaMemcpyHostToDevice));
     CUDA_ERROR_CHECK(cudaMemset(d_C, 0, size_C));
@@ -409,21 +368,28 @@ int main() {
 
     printf(" Optimized \n");
     KernelOptimized<256, 128, 128, 16, 2> runner;
-    runner.run(0, d_A_p, d_B_p, d_C, M, N, K); 
+    runner.run(0, d_A_s, d_B_p, d_C, M, N, K); 
     CUDA_ERROR_CHECK(cudaDeviceSynchronize());
 
     cublasHandle_t handle;
     CUBLAS_ERROR_CHECK(cublasCreate(&handle));
-    float alpha = 1.0f, beta = 0.0f;
+    float alpha = 1.0f;
 
-    printf(" CUBLAS SGEMM \n");
-    CUBLAS_ERROR_CHECK(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, 
-                                   N, M, K, 
+    CUDA_ERROR_CHECK(cudaMemcpy(d_C_cublas, d_A_s, size_A_s, cudaMemcpyDeviceToDevice));
+    
+    printf(" CUBLAS STRMM \n");
+    
+    CUBLAS_ERROR_CHECK(cublasStrmm(handle, 
+                                   CUBLAS_SIDE_LEFT, 
+                                   CUBLAS_FILL_MODE_LOWER, 
+                                   CUBLAS_OP_N, 
+                                   CUBLAS_DIAG_NON_UNIT,
+                                   N, M, 
                                    &alpha, 
                                    d_B_s, N, 
-                                   d_A_s, K, 
-                                   &beta, 
+                                   d_C_cublas, N,
                                    d_C_cublas, N));
+                                   
     CUDA_ERROR_CHECK(cudaDeviceSynchronize());
 
     CUDA_ERROR_CHECK(cudaMemcpy(h_C_ref.data(), d_C_ref, size_C, cudaMemcpyDeviceToHost));
@@ -431,36 +397,43 @@ int main() {
     CUDA_ERROR_CHECK(cudaMemcpy(h_C_cublas.data(), d_C_cublas, size_C, cudaMemcpyDeviceToHost));
     
     verify_result("Optimized vs Naive", h_C_ref.data(), h_C_opt.data(), M*N);
-    verify_result("CUBLAS vs Naive", h_C_ref.data(), h_C_cublas.data(), M*N);
+    verify_result("CUBLAS  vs Naive", h_C_ref.data(), h_C_cublas.data(), M*N);
 
     cudaEvent_t start, stop;
     cudaEventCreate(&start); cudaEventCreate(&stop);
     int iters = 20;
 
-    printf("\nBenchmarking Optimized Kernel...\n");
-    for(int i=0; i<5; i++) runner.run(0, d_A_p, d_B_p, d_C, M, N, K);
+    printf("\n Optimized Kernel...\n");
+    for(int i=0; i<5; i++) runner.run(0, d_A_s, d_B_p, d_C, M, N, K);
     cudaEventRecord(start);
-    for(int i=0; i<iters; i++) runner.run(0, d_A_p, d_B_p, d_C, M, N, K);
+    for(int i=0; i<iters; i++) runner.run(0, d_A_s, d_B_p, d_C, M, N, K);
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     float ms_opt; cudaEventElapsedTime(&ms_opt, start, stop);
     
-    printf("Benchmarking CUBLAS SGEMM...\n");
-    for(int i=0; i<5; i++) cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, d_B_s, N, d_A_s, K, &beta, d_C_cublas, N);
+    printf(" CUBLAS STRMM...\n");
+    for(int i=0; i<5; i++) {
+        cudaMemcpy(d_C_cublas, d_A_s, size_A_s, cudaMemcpyDeviceToDevice);
+        cublasStrmm(handle, CUBLAS_SIDE_LEFT, CUBLAS_FILL_MODE_LOWER, CUBLAS_OP_N, CUBLAS_DIAG_NON_UNIT, 
+                    N, M, &alpha, d_B_s, N, d_C_cublas, N, d_C_cublas, N);
+    }
+    
     cudaEventRecord(start);
-    for(int i=0; i<iters; i++) cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, d_B_s, N, d_A_s, K, &beta, d_C_cublas, N);
+    for(int i=0; i<iters; i++) {
+        cudaMemcpy(d_C_cublas, d_A_s, size_A_s, cudaMemcpyDeviceToDevice);
+        cublasStrmm(handle, CUBLAS_SIDE_LEFT, CUBLAS_FILL_MODE_LOWER, CUBLAS_OP_N, CUBLAS_DIAG_NON_UNIT, 
+                    N, M, &alpha, d_B_s, N, d_C_cublas, N, d_C_cublas, N);
+    }
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     float ms_cublas; cudaEventElapsedTime(&ms_cublas, start, stop);
 
     double gflops_base = (2.0 * M * N * K * 1e-9);
     
- 
     printf("Optimized : %.3f ms | %.2f GFLOPS\n", ms_opt/iters, gflops_base / (ms_opt/iters/1000.0));
-    printf("CUBLAS SGEMM : %.3f ms | %.2f GFLOPS\n", ms_cublas/iters, gflops_base / (ms_cublas/iters/1000.0));
-  
+    printf("CUBLAS STRMM : %.3f ms | %.2f GFLOPS\n", ms_cublas/iters, gflops_base / (ms_cublas/iters/1000.0));
 
-    cudaFree(d_A_s); cudaFree(d_A_p); 
+    cudaFree(d_A_s); 
     cudaFree(d_B_s); cudaFree(d_B_p); 
     cudaFree(d_C); cudaFree(d_C_ref); cudaFree(d_C_cublas);
     cublasDestroy(handle);
@@ -468,4 +441,3 @@ int main() {
 
     return 0;
 }
-//
