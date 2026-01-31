@@ -1,4 +1,3 @@
-
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 #include <cstdio>
@@ -285,6 +284,8 @@ __global__ void naive_gemm(const float* A, const float* B, float* C, int M, int 
     }
 }
 
+
+
 int main() {
     int M = 4096, N = 4096, K = 4096;
     printf("Matrix Size: %d x %d x %d (Toeplitz vs CuBLAS Ssymm)\n", M, N, K);
@@ -303,20 +304,23 @@ int main() {
 
     srand(2024);
     
+   
     for(int i = 0; i < M * K; i++) h_A[i] = (rand()%10)/10.0f;
 
+    
     std::vector<float> first_row(N);
-    std::vector<float> first_col(K);
+    
     for(auto& x : first_row) x = (rand()%10)/10.0f;
-    for(auto& x : first_col) x = (rand()%10)/10.0f;
-    first_col[0] = first_row[0]; 
 
+    
     for(int r = 0; r < K; r++) {
         for(int c = 0; c < N; c++) {
-            if (c >= r) h_B_full[r * N + c] = first_row[c - r];
-            else        h_B_full[r * N + c] = first_col[r - c];
+            int dist = abs(c - r);
+            
+            h_B_full[r * N + c] = first_row[dist];
         }
     }
+    
     
     build_toeplitz_compact_host(h_B_full.data(), h_B_compact.data(), K, N);
 
@@ -351,15 +355,16 @@ int main() {
     CUBLAS_ERROR_CHECK(cublasCreate(&handle));
     float alpha = 1.0f, beta = 0.0f;
 
+    
     CUBLAS_ERROR_CHECK(cublasSsymm(handle, 
                                    CUBLAS_SIDE_LEFT, 
                                    CUBLAS_FILL_MODE_LOWER, 
-                                   N, M,
+                                   N, M,        
                                    &alpha, 
-                                   d_B_full, N,
-                                   d_A, N,
+                                   d_B_full, N, 
+                                   d_A, N,      
                                    &beta, 
-                                   d_C_cublas, N));
+                                   d_C_cublas, N)); 
     CUDA_ERROR_CHECK(cudaDeviceSynchronize());
 
     CUDA_ERROR_CHECK(cudaMemcpy(h_C_ref.data(), d_C_ref, size_C, cudaMemcpyDeviceToHost));
@@ -368,6 +373,7 @@ int main() {
     
     verify_result("Optimized vs Naive", h_C_ref.data(), h_C_opt.data(), M*N);
     verify_result("CuBLAS vs Naive", h_C_ref.data(), h_C_cublas.data(), M*N);
+    
     
     cudaEvent_t start, stop;
     cudaEventCreate(&start); cudaEventCreate(&stop);
