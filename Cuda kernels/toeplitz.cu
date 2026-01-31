@@ -78,7 +78,7 @@ __device__ void copy_B_to_Reg(const float *B_compact, float RegsB_Prefetch[(BN*B
   uint ThreadsStrideN = BN/VectorElems;
   uint ThreadsStrideK = (NumThreads > ThreadsStrideN) ? NumThreads/ThreadsStrideN : 1;
   uint KElemsPerThread = BK/ThreadsStrideK;
-  int compact_size = K + N - 1;
+  // int compact_size = K + N - 1;
 
   for (int kEl = 0; kEl < KElemsPerThread; kEl ++) {
     int tk = kEl*ThreadsStrideK + threadIdx.x/ThreadsStrideN;
@@ -92,9 +92,9 @@ __device__ void copy_B_to_Reg(const float *B_compact, float RegsB_Prefetch[(BN*B
         #pragma unroll
         for(int v = 0; v < 4; ++v) {
             int current_t_idx = t_idx_base + v;
-            if (global_n_base + v < N && current_t_idx >= 0 && current_t_idx < compact_size) {
-                 temp_regs[v] = B_compact[current_t_idx];
-            }
+            
+            temp_regs[v] = B_compact[current_t_idx];
+            
         }
     }
     RegsB_Prefetch[kEl*VectorElems + 0] = temp_regs[0];
