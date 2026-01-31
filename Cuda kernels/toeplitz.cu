@@ -252,7 +252,7 @@ struct KernelOptimized {
     }
 };
 
-void build_toeplitz_compact_host(float* B_matrix, float* B_compact, int K, int N) {
+void build_toeplitz_compact(float* B_matrix, float* B_compact, int K, int N) {
     for (int i = 0; i < K; ++i) {
         B_compact[K - 1 - i] = B_matrix[i * N]; 
     }
@@ -322,7 +322,7 @@ int main() {
     }
     
     
-    build_toeplitz_compact_host(h_B_full.data(), h_B_compact.data(), K, N);
+    build_toeplitz_compact(h_B_full.data(), h_B_compact.data(), K, N);
 
     float *d_A, *d_B_full, *d_B_compact, *d_C, *d_C_ref, *d_C_cublas;
     CUDA_ERROR_CHECK(cudaMalloc(&d_A, size_A));
