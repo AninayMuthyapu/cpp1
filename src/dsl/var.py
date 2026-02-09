@@ -1,3 +1,4 @@
+
 class Expression:
     pass
 
@@ -43,6 +44,9 @@ class Var(Expression):
 
     def __mul__(self, other):
         return ArithmeticExpression(self, '*', other)
+    
+    def __truediv__(self, other):
+        return ArithmeticExpression(self, '/', other)
 
     
 
@@ -90,9 +94,10 @@ class ArithmeticExpression(Expression):
 
     def __mul__(self, other):
         return ArithmeticExpression(self, '*', other)
-
+    
     def __truediv__(self, other):
         return ArithmeticExpression(self, '/', other)
+
 
     def __getitem__(self, index):
         return ArithmeticExpression(self, 'subscript', index)
