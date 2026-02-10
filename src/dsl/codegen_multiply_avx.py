@@ -379,7 +379,86 @@ double time_ms = duration<double, std::milli>(end - start).count();
 
 
 
+    elif isinstance(lhs, DiagonalMatrix) and isinstance(rhs, GeneralMatrix) and isinstance(out_matrix_obj, GeneralMatrix):
+        computation_body = f"""
+auto start = high_resolution_clock::now();
 
+#pragma omp parallel for collapse(2) schedule(static)
+for (int i = 0; i < M; i += BM) {{
+    for (int j = 0; j < N; j += BN) {{  
+
+        int thread_id = omp_get_thread_num();
+        float* local_a_buf = A_cache[thread_id]; 
+        float* local_b_buf = B_cache[thread_id]; 
+
+        
+        int curr_BM = std::min(BM, M - i);
+        int curr_BN = std::min(BN, N - j);
+
+        
+        // Cache the BM x BN block of the General Matrix (RHS, B_ptr)
+        for (int ii = 0; ii < curr_BM; ++ii) {{
+            memcpy(&local_a_buf[ii * curr_BN], &{B_ptr}[(i + ii) * N + j], curr_BN * sizeof(float));
+        }}
+
+        
+        // Cache the BM x 1 block of the Diagonal Matrix (LHS, A_ptr)
+        int ii_cache = 0;
+        for (; ii_cache + 8 <= curr_BM; ii_cache += 8) {{
+            _mm256_storeu_ps(&local_b_buf[ii_cache], _mm256_loadu_ps(&{A_ptr}[i + ii_cache]));
+        }}
+        for (; ii_cache < curr_BM; ++ii_cache) {{
+            local_b_buf[ii_cache] = {A_ptr}[i + ii_cache];
+        }}
+
+        
+        for (int ii_t = 0; ii_t < curr_BM; ii_t += IT_M) {{
+            int this_IT_M = std::min(IT_M, curr_BM - ii_t);
+
+            for (int jj_t = 0; jj_t < curr_BN; jj_t += IT_N) {{
+                int this_IT_N = std::min(IT_N, curr_BN - jj_t);
+
+                
+                // No b_vec_tile_avx needed here, we broadcast W[i] inside the row loop
+
+                
+                for (int ii = 0; ii < this_IT_M; ++ii) {{
+                    
+                    // Load the scalar W[i] value from the cache and broadcast it
+                    float w_val = local_b_buf[ii_t + ii];
+                    __m256 w_vec_bcast = _mm256_set1_ps(w_val);
+
+                    int vec_count = (this_IT_N + 7) / 8;
+                    for (int k = 0; k < vec_count; ++k) {{
+                        int col_pos = jj_t + k*8;
+                        if (col_pos + 8 <= curr_BN) {{
+                            
+                            // Load A[i][j...j+7]
+                            __m256 a_vec = _mm256_loadu_ps(&local_a_buf[(ii_t + ii) * curr_BN + col_pos]);
+                            // C[i][j...] = W[i] * A[i][j...]
+                            __m256 res = _mm256_mul_ps(w_vec_bcast, a_vec);
+                            _mm256_storeu_ps(&{C_ptr}[(i + ii_t + ii) * N + j + col_pos], res);
+                        }} else {{
+                            
+                            // Handle remainder
+                            int rem = curr_BN - col_pos;
+                            for (int t = 0; t < rem; ++t) {{
+                                float aval = local_a_buf[(ii_t + ii) * curr_BN + col_pos + t];
+                                {C_ptr}[(i + ii_t + ii) * N + j + col_pos + t] = w_val * aval;
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+        }}
+    }}
+}}
+
+auto end = high_resolution_clock::now();
+double time_ms = duration<double, std::milli>(end - start).count();
+*time_ms_out = time_ms;
+*gflops_out = (time_ms > 0.0) ? ({flops_expr} / (time_ms * 1e6)) : 0.0;
+"""
 
 
 
@@ -562,9 +641,116 @@ double time_ms = duration<double, std::milli>(end - start).count();
          
 
 
+    elif isinstance(lhs, LowerTriangularMatrix) and isinstance(rhs, LowerTriangularMatrix) and isinstance(out_matrix_obj, GeneralMatrix):
+        computation_body = f"""
+    constexpr int vector_width = 8;
+    auto start = high_resolution_clock::now();
+
+    #pragma omp parallel for collapse(2) schedule(static)
+    for (int m1 = 0; m1 < M; m1 += BM) {{
+        for (int n1 = 0; n1 < N; n1 += BN) {{
+            int thread_id = omp_get_thread_num();
+            float* local_C = C_cache[thread_id];
+            float* local_A = A_cache[thread_id];
+            float* local_B = B_cache[thread_id];
+
+            for (int i = 0; i < BM; ++i) {{
+                int global_row = m1 + i;
+                int valid_cols = std::min(BN, N - n1);
+                memcpy(&local_C[i * BN], &{C_ptr}[global_row * N + n1], valid_cols * sizeof(float));
+            }}
+
+            for (int k1 = 0; k1 < K; k1 += BK) {{
+                if (n1 < k1 + BK && k1 < m1 + BM) {{
+                    for (int mm = 0; mm < BM; ++mm) {{
+                        int global_i = m1 + mm;
+                        int row_offset = (global_i * (global_i + 1)) / 2;
+                        
+                        int src_start = k1;
+                        int src_end   = std::min(k1 + BK, global_i + 1);
+                        int copy_count = std::max(0, src_end - src_start);
+
+                        if (copy_count > 0) {{
+                            memcpy(&local_A[mm * BK],
+                                   &{A_ptr}[row_offset + src_start],
+                                   copy_count * sizeof(float));
+                        }}
+
+                        if (copy_count < BK) {{
+                            memset(&local_A[mm * BK + copy_count], 0, (BK - copy_count) * sizeof(float));
+                        }}
+                    }}
+
+                    for (int kk = 0; kk < BK; ++kk) {{
+                        int global_k = k1 + kk;
+                        int row_offset = (global_k * (global_k + 1)) / 2;
+
+                        int src_start = n1;
+                        int src_end   = std::min(n1 + BN, global_k + 1);
+                        int copy_count = std::max(0, src_end - src_start);
+
+                        if (copy_count > 0) {{
+                            memcpy(&local_B[kk * BN],
+                                   &{B_ptr}[row_offset + src_start],
+                                   copy_count * sizeof(float));
+                        }}
+
+                        if (copy_count < BN) {{
+                            memset(&local_B[kk * BN + copy_count], 0, (BN - copy_count) * sizeof(float));
+                        }}
+                    }}
+
+                    for (int i = 0; i < BM; i += IT_M) {{
+                        for (int j = 0; j < BN; j += IT_N) {{
+                            __m256 C_tile[IT_M][IT_N / vector_width];
+                            for (int mm = 0; mm < IT_M; ++mm) {{
+                                for (int nn = 0; nn < IT_N / vector_width; ++nn) {{
+                                    int col_offset = j + nn * vector_width;
+                                    C_tile[mm][nn] = _mm256_loadu_ps(&local_C[(i + mm) * BN + col_offset]);
+                                }}
+                            }}
+                            for (int p = 0; p < BK; p += IT_K) {{
+                                for (int kk_inner = 0; kk_inner < IT_K; ++kk_inner) {{
+                                    int depth_local = p + kk_inner;
+                                    int global_k = k1 + depth_local;
+                                    __m256 A_vec[IT_M];
+                                    for (int mm = 0; mm < IT_M; ++mm) {{
+                                        A_vec[mm] = _mm256_broadcast_ss(&local_A[(i + mm) * BK + depth_local]);
+                                    }}
+                                    __m256 B_vec[IT_N / 8];
+                                    for (int nn = 0; nn < IT_N / 8; ++nn) {{
+                                        B_vec[nn] = _mm256_loadu_ps(&local_B[depth_local * BN + j + nn * vector_width]);
+                                    }}
+                                    for (int mm = 0; mm < IT_M; ++mm) {{
+                                        for (int nn = 0; nn < IT_N / vector_width; ++nn) {{
+                                            C_tile[mm][nn] = _mm256_fmadd_ps(A_vec[mm], B_vec[nn], C_tile[mm][nn]);
+                                        }}
+                                    }}
+                                }}
+                            }}
+                            for (int mm = 0; mm < IT_M; ++mm) {{
+                                for (int nn = 0; nn < IT_N / vector_width; ++nn) {{
+                                    int col_offset = j + nn * vector_width;
+                                    _mm256_storeu_ps(&local_C[(i + mm) * BN + col_offset], C_tile[mm][nn]);
+                                }}
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+            for (int i = 0; i < BM; ++i) {{
+                int global_row = m1 + i;
+                int valid_cols = std::min(BN, N - n1);
+                memcpy(&{C_ptr}[global_row * N + n1], &local_C[i * BN], valid_cols * sizeof(float));
+            }}
+        }}
+    }}
+    auto end = high_resolution_clock::now();
+    double time_ms = duration<double, std::milli>(end - start).count();
+    *time_ms_out = time_ms;
+    *gflops_out = (time_ms > 0.0) ? ({flops_expr} / (time_ms * 1e6)) : 0.0;
+"""
          
-
-
 
 
 
@@ -1129,7 +1315,6 @@ extern "C" void {func_name}({func_args_str}) {{
 }}
 """
     return full_code, func_name, ordered_arg_names
-
 
 
 
