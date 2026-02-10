@@ -1,4 +1,4 @@
-from .var import Conditional, Var, ArithmeticExpression, Comparison
+from dsl.var import Conditional, Var, ArithmeticExpression, Comparison
 
 N = Var('N')
 
@@ -47,11 +47,24 @@ def toeplitz_layout(i, j, data_arr, dim_size_n):
     array_index = ArithmeticExpression(diagonal_offset, '+', ArithmeticExpression(dim_size_n, '-', 1))
     return data_arr[array_index]
 
-def symmetric_layout(i, j, data_arr):
+def symmetric_layout(i, j, data_arr, dim_size_n):
+    # This is the simple swap logic without calling a separate function
+    def get_upper_triangular_index(row, col):
+        rows_skipped_elements = ArithmeticExpression(
+            ArithmeticExpression(row, '*', dim_size_n),
+            '-',
+            ArithmeticExpression(
+                ArithmeticExpression(row, '*', ArithmeticExpression(row, '-', 1)),
+                '/', 2
+            )
+        )
+        offset_in_row = ArithmeticExpression(col, '-', row)
+        return ArithmeticExpression(rows_skipped_elements, '+', offset_in_row)
+
     return Conditional(
         Comparison(i, "<=", j),
-        upper_triangular_layout(i, j, data_arr),
-        upper_triangular_layout(j, i, data_arr)
+        data_arr[get_upper_triangular_index(i, j)],
+        data_arr[get_upper_triangular_index(j, i)]
     )
 
 def vector_layout(i, j, data_arr, cols_dim):
