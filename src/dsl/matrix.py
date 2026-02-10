@@ -5,7 +5,8 @@ from .layout_functions import (
     lower_triangular_layout,
     upper_triangular_layout,
     toeplitz_layout,
-    vector_layout
+    vector_layout,
+    symmetric_layout
 )
 class DType:
     float = 'float'
@@ -99,6 +100,12 @@ class ToeplitzMatrix(SymbolicMatrix):
         if not (len(shape) == 2 and shape[0] == shape[1]):
             raise ValueError("ToeplitzMatrix must be square")
         super().__init__(shape, dtype, name, toeplitz_layout)
+class SymmetricMatrix(SymbolicMatrix):
+    def __init__(self, shape, name="unnamed", dtype=DType.float):
+        if not (len(shape) == 2 and shape[0] == shape[1]):
+            raise ValueError("SymmetricMatrix must be square")
+        super().__init__(shape, dtype, name, symmetric_layout)
+
 
 
 class Vector(SymbolicMatrix):
@@ -106,7 +113,6 @@ class Vector(SymbolicMatrix):
         if not (len(shape) == 2 and (shape[1] == 1 or shape[0] == 1)):
             raise ValueError("Vector must have a shape of (N, 1) or (1, N)")
         super().__init__(shape, dtype, name, vector_layout)
-
 
 
 
