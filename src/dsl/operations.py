@@ -1,4 +1,3 @@
-
 from .matrix import Matrix
 from .var import (
     Var,
@@ -14,10 +13,7 @@ from collections import defaultdict
 opcounters = defaultdict(int)
 
 class Operation(Matrix):
-    """
-    A symbolic representation of a matrix operation.
-    It builds a symbolic expression tree for code generation.
-    """
+    
     def __init__(self, operator, operands, name=None):
         self.operator = operator
         self.operands = operands
@@ -64,10 +60,7 @@ class Operation(Matrix):
         return "double" if "double" in dtypes else "float"
 
     def get_symbolic_expression(self, i, j):
-        """
-        Recursively combines the symbolic expressions of the operands
-        to form a single expression tree.
-        """
+        
         if self.operator in ['add', 'sub']:
             left_expr = self.operands[0].get_symbolic_expression(i, j)
             right_expr = self.operands[1].get_symbolic_expression(i, j)
