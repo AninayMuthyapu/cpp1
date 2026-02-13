@@ -63,7 +63,7 @@ def generate_cuda_code(outputs, out_matrix_obj, block_dim=(16, 16)):
         k_str = var_map.get(k_var.name, str(k_var))
         n_str = var_map.get(n_var.name, str(n_var))
 
-        # Shared Helper Functions for both MatMul cases
+        
         shared_helpers = """
 #include <cuda_runtime.h>
 #include <stdio.h>
@@ -154,9 +154,7 @@ __device__ void load_RegB_from_SmemB(const float* SmemB, float* Breg, uint rk, u
 }
 """
 
-        # ---------------------------------------------------------
-        #  CASE 1: GENERAL (LHS) x UPPER TRIANGULAR PACKED (RHS)
-        # ---------------------------------------------------------
+        
         if isinstance(rhs, UpperTriangularMatrix):
             print(">> Generating Optimized Kernel for General x Upper Triangular (Packed)")
             
@@ -349,9 +347,7 @@ extern "C" void {wrapper_name}({func_args_str}) {{
 """
             return kernel_code + wrapper_code, wrapper_name, ordered_arg_names
 
-        # ---------------------------------------------------------
-        #  CASE 2: GENERAL (LHS) x GENERAL (RHS)
-        # ---------------------------------------------------------
+        
         else:
             print(">> Generating Optimized Kernel for General x General")
             kernel_code = shared_helpers + """
