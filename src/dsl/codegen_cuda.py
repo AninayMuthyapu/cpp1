@@ -60,7 +60,7 @@ def generate_cuda_code(outputs, out_matrix_obj,
         n_str = var_map.get(n_var.name, str(n_var))
 
         if isinstance(lhs, GeneralMatrix) and isinstance(rhs, GeneralMatrix):
-            print("Generating Optimized Kernel for General x General")
+            
             kernel_code = """
 #include <cuda_runtime.h>
 #include <stdio.h>
@@ -278,7 +278,7 @@ extern "C" void {wrapper_name}({func_args_str}) {{
             return kernel_code + wrapper_code, wrapper_name, ordered_arg_names
 
         elif isinstance(lhs, GeneralMatrix) and isinstance(rhs, UpperTriangularMatrix):
-            print("Generating Optimized Kernel for General x Upper Triangular")
+            
             kernel_code = """
 #include <cuda_runtime.h>
 #include <stdio.h>
@@ -966,6 +966,149 @@ extern "C" void {wrapper_name}({func_args_str}) {{
         else:
             raise NotImplementedError(f"Matmul for {type(lhs)} x {type(rhs)} is not yet implemented.")
 
-    includes = "#include <cuda_runtime.h>\n#include <stdio.h>\n"
+    elif out_node.operator == 'add':
+        m_var = lhs.shape[0]
+        n_var = lhs.shape[1]
+        m_str = var_map.get(m_var.name, str(m_var))
+        n_str = var_map.get(n_var.name, str(n_var))
+
+        
+        if isinstance(lhs, GeneralMatrix) and isinstance(rhs, SymmetricMatrix):
+            
+            kernel_code = """
+#include <cuda_runtime.h>
+#include <stdio.h>
+
+__device__ void ld_global_vec4(const float4* ptr, float regs[4]) {
+    asm volatile ("ld.ca.global.v4.f32 {%0, %1, %2, %3}, [%4];" :
+                  "=f"(regs[0]), "=f"(regs[1]), "=f"(regs[2]), "=f"(regs[3]) : "l"(ptr));
+}
+
+__device__ void st_global_vec4(float regs[4], float4* ptr) {
+    asm volatile ("st.global.v4.f32 [%0], {%1, %2, %3, %4};" ::
+                  "l"(ptr), "f"(regs[0]), "f"(regs[1]), "f"(regs[2]), "f"(regs[3]));
+}
+
+__global__ void kernel_add_gen_symm(const float* A_gen, const float* B_symm, float* C, int n) {
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    
+    if (row < n && col < n) {
+        
+        int r = (row <= col) ? row : col;
+        int c = (row <= col) ? col : row;
+        
+        size_t r_idx = (size_t)r;
+        size_t symm_idx = r_idx * n - ((r_idx * (r_idx - 1)) >> 1) + (size_t)(c - r);
+        
+        C[row * n + col] = A_gen[row * n + col] + B_symm[symm_idx];
+    }
+}
+"""
+            wrapper_code = f"""
+extern "C" void {wrapper_name}({func_args_str}) {{
+    dim3 threads(16, 16);
+    dim3 blocks(({n_str} + threads.x - 1) / threads.x, ({m_str} + threads.y - 1) / threads.y);
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start); cudaEventCreate(&stop);
+    cudaEventRecord(start);
+
+    kernel_add_gen_symm<<<blocks, threads>>>({lhs_ptr}, {rhs_ptr}, {out_ptr}, {n_str});
+
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float ms = 0;
+    cudaEventElapsedTime(&ms, start, stop);
+    *time_ms_out = ms;
+    
+    // M * N additions
+    double ops = (double){m_str} * (double){n_str};
+    *gflops_out = (float)((ops * 1e-9) / (ms / 1000.0));
+
+    cudaEventDestroy(start); cudaEventDestroy(stop);
+}}
+"""
+            return kernel_code + wrapper_code, wrapper_name, ordered_arg_names
+
+        
+        else:
+            print(f" Optimized Kernel for sy)")
+            
+            if isinstance(lhs, (SymmetricMatrix, UpperTriangularMatrix)):
+                size_expr = f"(int)(((size_t){m_str} * ((size_t){m_str} + 1)) / 2)"
+            elif isinstance(lhs, DiagonalMatrix):
+                size_expr = f"{m_str}"
+            else:
+                size_expr = f"{m_str} * {n_str}"
+
+            kernel_code = """
+#include <cuda_runtime.h>
+#include <stdio.h>
+
+__device__ void ld_global_vec4(const float4* ptr, float regs[4]) {
+    asm volatile ("ld.ca.global.v4.f32 {%0, %1, %2, %3}, [%4];" :
+                  "=f"(regs[0]), "=f"(regs[1]), "=f"(regs[2]), "=f"(regs[3]) : "l"(ptr));
+}
+
+__device__ void st_global_vec4(float regs[4], float4* ptr) {
+    asm volatile ("st.global.v4.f32 [%0], {%1, %2, %3, %4};" ::
+                  "l"(ptr), "f"(regs[0]), "f"(regs[1]), "f"(regs[2]), "f"(regs[3]));
+}
+
+__global__ void kernel_add_1d_vec4(const float* A, const float* B, float* C, int total_elements) {
+    int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
+    
+    if (idx + 3 < total_elements) {
+        float a_regs[4], b_regs[4], c_regs[4];
+        
+        
+        ld_global_vec4((const float4*)&A[idx], a_regs);
+        ld_global_vec4((const float4*)&B[idx], b_regs);
+        
+        #pragma unroll
+        for (int i = 0; i < 4; i++) {
+            c_regs[i] = a_regs[i] + b_regs[i];
+        }
+        
+        
+        st_global_vec4(c_regs, (float4*)&C[idx]);
+    } 
+    
+    else {
+        for (int i = idx; i < total_elements; i++) {
+            C[i] = A[i] + B[i];
+        }
+    }
+}
+"""
+            wrapper_code = f"""
+extern "C" void {wrapper_name}({func_args_str}) {{
+    int total_elements = {size_expr};
     
     
+    int total_threads_needed = (total_elements + 3) / 4;
+    int threads = 256;
+    int blocks = (total_threads_needed + threads - 1) / threads;
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start); cudaEventCreate(&stop);
+    cudaEventRecord(start);
+
+    kernel_add_1d_vec4<<<blocks, threads>>>({lhs_ptr}, {rhs_ptr}, {out_ptr}, total_elements);
+
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float ms = 0;
+    cudaEventElapsedTime(&ms, start, stop);
+    *time_ms_out = ms;
+    
+    double ops = (double)total_elements; 
+    *gflops_out = (float)((ops * 1e-9) / (ms / 1000.0));
+
+    cudaEventDestroy(start); cudaEventDestroy(stop);
+}}
+"""
+            return kernel_code + wrapper_code, wrapper_name, ordered_arg_names
+
+    return "", "", []
