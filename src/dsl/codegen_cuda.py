@@ -544,7 +544,7 @@ extern "C" void {wrapper_name}({func_args_str}) {{
             return kernel_code + wrapper_code, wrapper_name, ordered_arg_names
 
         elif isinstance(lhs, GeneralMatrix) and isinstance(rhs, SymmetricMatrix):
-            print("Generating Optimized Kernel for General x Symmetric")
+            
             kernel_code = """
 #include <cuda_runtime.h>
 #include <stdio.h>
@@ -806,7 +806,7 @@ extern "C" void {wrapper_name}({func_args_str}) {{
             return kernel_code + wrapper_code, wrapper_name, ordered_arg_names
 
         elif isinstance(lhs, GeneralMatrix) and isinstance(rhs, DiagonalMatrix):
-            print("Generating Optimized Kernel for General x Diagonal")
+            
             kernel_code = """
 #include <cuda_runtime.h>
 #include <stdio.h>
@@ -962,9 +962,724 @@ extern "C" void {wrapper_name}({func_args_str}) {{
 }}
 """
             return kernel_code + wrapper_code, wrapper_name, ordered_arg_names
+        
+
+
+
+
+
+# --------------------------------------
+
+        elif isinstance(lhs, SymmetricMatrix) and isinstance(rhs, GeneralMatrix):
+            print("Generating Optimized Kernel for Symmetric x General")
+            kernel_code = """
+#include <cuda_runtime.h>
+#include <stdio.h>
+
+#define PAD 4
+
+__device__ __forceinline__ void ld_global_vec4(const float4* ptr, float regs[4]) {
+    asm volatile ("ld.global.v4.f32 {%0, %1, %2, %3}, [%4];" :
+                  "=f"(regs[0]), "=f"(regs[1]), "=f"(regs[2]), "=f"(regs[3]) : "l"(ptr));
+}
+
+__device__ __forceinline__ void st_global_vec4(float regs[4], float4* ptr) {
+    asm volatile ("st.global.v4.f32 [%0], {%1, %2, %3, %4};" ::
+                  "l"(ptr), "f"(regs[0]), "f"(regs[1]), "f"(regs[2]), "f"(regs[3]));
+}
+
+__device__ __forceinline__ float ld_global_f32(const float* ptr) {
+  float val;
+  asm volatile ("ld.global.f32 %0, [%1];" : "=f"(val) : "l"(ptr));
+  return val;
+}
+
+
+template<int VectorElems, int NumThreads, int BM, int BK>
+__device__ void copy_A_to_Reg_Symm(const float *A, float RegsA_Prefetch[(BM*BK)/NumThreads], int M, int K, int row_m_start, int col_k_start) {
+  uint ThreadsStrideK = BK/VectorElems;
+  uint ThreadsStrideM = (NumThreads > ThreadsStrideK) ? NumThreads/ThreadsStrideK : 1;
+  uint KElemsPerThread = (NumThreads > ThreadsStrideK) ? 1 : (NumThreads/ThreadsStrideK);
+  uint MElemsPerThread = (NumThreads > ThreadsStrideK) ? BM/(ThreadsStrideM) : 1;
+
+  for (int mEl = 0; mEl < MElemsPerThread; mEl++) {
+    for (int kEl = 0; kEl < KElemsPerThread; kEl++) {
+      uint tm = mEl*ThreadsStrideM + (threadIdx.x/ThreadsStrideK);
+      uint tk = (threadIdx.x%ThreadsStrideK)*VectorElems;
+      
+      int global_m = row_m_start + tm;
+      int global_k_base = col_k_start + tk;
+      
+      float temp_regs[4] = {0.0f};
+
+      if (global_m < M && global_k_base < K) {
+          bool all_upper = (global_k_base >= global_m); 
+
+          if (all_upper) {
+              size_t m_idx = (size_t)global_m;
+              size_t row_start = m_idx * K - ((m_idx * (m_idx - 1)) >> 1);
+              size_t offset = row_start + (size_t)(global_k_base - global_m);
+              
+              if ( (offset % 4 == 0) && (global_k_base + 4 <= K) ) {
+                  ld_global_vec4((const float4*)&A[offset], temp_regs);
+              } else {
+                  #pragma unroll
+                  for(int v=0; v<4; v++) {
+                     int gk = global_k_base + v;
+                     if (gk < K) temp_regs[v] = ld_global_f32(&A[offset + v]);
+                  }
+              }
+          } 
+          else {
+               #pragma unroll
+               for(int v = 0; v < VectorElems; ++v) {
+                  int gk = global_k_base + v;
+                  if (gk < K) {
+                      int row = (global_m <= gk) ? global_m : gk;
+                      int col = (global_m <= gk) ? gk : global_m;
+                      size_t r_idx = (size_t)row;
+                      size_t idx = r_idx * K - ((r_idx * (r_idx - 1)) >> 1) + (size_t)(col - row);
+                      temp_regs[v] = ld_global_f32(&A[idx]);
+                  }
+              }
+          }
+      }
+      
+      RegsA_Prefetch[mEl*VectorElems*KElemsPerThread + kEl*VectorElems + 0] = temp_regs[0];
+      RegsA_Prefetch[mEl*VectorElems*KElemsPerThread + kEl*VectorElems + 1] = temp_regs[1];
+      RegsA_Prefetch[mEl*VectorElems*KElemsPerThread + kEl*VectorElems + 2] = temp_regs[2];
+      RegsA_Prefetch[mEl*VectorElems*KElemsPerThread + kEl*VectorElems + 3] = temp_regs[3];
+    }
+  }
+}
+
+
+template<int VectorElems, int NumThreads, int BN, int BK>
+__device__ void copy_B_to_Reg(const float *B, float RegsB_Prefetch[(BN*BK)/NumThreads], int K, int N, int row_k_start, int col_n_start) {
+  uint ThreadsStrideN = BN/VectorElems;
+  uint ThreadsStrideK = (NumThreads > ThreadsStrideN) ? NumThreads/ThreadsStrideN : 1;
+  uint KElemsPerThread = BK/ThreadsStrideK;
+
+  for (int kEl = 0; kEl < KElemsPerThread; kEl ++) {
+    int tk = kEl*ThreadsStrideK + threadIdx.x/ThreadsStrideN;
+    int tn = (threadIdx.x%ThreadsStrideN)*VectorElems;
+    
+    int global_k = row_k_start + tk;
+    int global_n_base = col_n_start + tn;
+    
+    float temp_regs[4] = {0.0f};
+
+    if (global_k < K && global_n_base < N) {
+        if (global_n_base + 3 < N) {
+            ld_global_vec4((const float4*)&B[global_k * N + global_n_base], temp_regs);
+        } else {
+            #pragma unroll
+            for(int v=0; v<4; v++) {
+                if (global_n_base + v < N) temp_regs[v] = ld_global_f32(&B[global_k * N + global_n_base + v]);
+            }
+        }
+    }
+    
+    RegsB_Prefetch[kEl*VectorElems + 0] = temp_regs[0];
+    RegsB_Prefetch[kEl*VectorElems + 1] = temp_regs[1];
+    RegsB_Prefetch[kEl*VectorElems + 2] = temp_regs[2];
+    RegsB_Prefetch[kEl*VectorElems + 3] = temp_regs[3];
+  }
+}
+
+template<int VectorElems, int NumThreads, int BM, int BK>
+__device__ void copy_Reg_to_SmemA(const float RegsA_Prefetch[(BM*BK)/NumThreads], float *SmemA, int M, int K, int row, int col) {
+  uint ThreadsStrideK = BK/VectorElems;
+  uint ThreadsStrideM = (NumThreads > ThreadsStrideK) ? NumThreads/ThreadsStrideK : 1;
+  uint MElemsPerThread = (NumThreads > ThreadsStrideK) ? BM/(ThreadsStrideM) : 1;
+  for (int mEl = 0; mEl < MElemsPerThread; mEl++) {
+      uint tm = mEl*ThreadsStrideM + (threadIdx.x/ThreadsStrideK);
+      uint tk = (threadIdx.x%ThreadsStrideK)*VectorElems;
+      int StrideA = BM + 4;
+      SmemA[(tk + 0) * StrideA + tm] = RegsA_Prefetch[mEl*VectorElems + 0];
+      SmemA[(tk + 1) * StrideA + tm] = RegsA_Prefetch[mEl*VectorElems + 1];
+      SmemA[(tk + 2) * StrideA + tm] = RegsA_Prefetch[mEl*VectorElems + 2];
+      SmemA[(tk + 3) * StrideA + tm] = RegsA_Prefetch[mEl*VectorElems + 3];
+  }
+}
+
+template<int VectorElems, int NumThreads, int BN, int BK, int RegN>
+__device__ void copy_Reg_to_SmemB(const float RegsB_Prefetch[(BN*BK)/NumThreads], float *SmemB, int K, int N, int row, int col) {
+  uint ThreadsStrideN = BN/VectorElems;
+  uint ThreadsStrideK = (NumThreads > ThreadsStrideN) ? NumThreads/ThreadsStrideN : 1;
+  uint KElemsPerThread = BK/ThreadsStrideK;
+  for (int kEl = 0; kEl < KElemsPerThread; kEl ++) {
+    int tk = kEl*ThreadsStrideK + threadIdx.x/ThreadsStrideN;
+    int tn = (threadIdx.x%ThreadsStrideN)*VectorElems;
+    int StrideB = BN + PAD;
+    *(float4*)&SmemB[tk * StrideB + tn] = make_float4(RegsB_Prefetch[kEl*VectorElems + 0],
+                                                 RegsB_Prefetch[kEl*VectorElems + 1],
+                                                 RegsB_Prefetch[kEl*VectorElems + 2],
+                                                 RegsB_Prefetch[kEl*VectorElems + 3]);
+  }
+}
+
+template<int VectorElems,int BM,int RegM>
+__device__ void load_RegA_from_SmemA(const float* SmemA, float* Areg,uint thread_m, uint rk) {
+    int StrideA = BM + 4;
+    #pragma unroll
+    for (int rm = 0; rm < RegM; ++rm) {
+        Areg[rm] = SmemA[rk * StrideA + (thread_m * RegM + rm)];
+    }
+}
+
+template<int VectorElems, int BN, int RegN>
+__device__ void load_RegB_from_SmemB(const float* SmemB, float* Breg, uint rk, uint thread_n) {
+  for (int rn = 0; rn < RegN; rn += VectorElems) {
+    uint vectorRound = (rn/VectorElems)*BN/(RegN/VectorElems) + rn%VectorElems;
+    int StrideB = BN + PAD;
+    float4 vec = *(float4*)&SmemB[rk * StrideB + vectorRound + thread_n*VectorElems];
+    Breg[rn+0] = vec.x; Breg[rn+1] = vec.y; Breg[rn+2] = vec.z; Breg[rn+3] = vec.w;
+  }
+}
+
+template<int NumThreads, int SwizzleN, int Pipeline, int BM, int BN, int BK, int RegM, int RegN, int RegK, int APadding>
+__global__ void kernel_symm_x_gen(const float *A, const float *B, float *C, int M, int N, int K) {
+  extern __shared__ char SharedMem[];
+  int col = (blockIdx.x / SwizzleN) * BN;
+  int row = (blockIdx.y * SwizzleN + (blockIdx.x % SwizzleN)) * BM;
+  if (row >= M || col >= N) return; 
+
+  size_t SmemASize = (BM + 4) * BK;
+  size_t SmemBSize = (BN + 4) * BK;
+  float* SmemA = (float*)&SharedMem[0];
+  float* SmemB = (float*)&SharedMem[SmemASize * Pipeline * sizeof(float)];
+  float Creg[RegM][RegN] = {{0.0f}};
+  
+  int thread_n = threadIdx.x % (BN/RegN); 
+  int thread_m = threadIdx.x / (BN/RegN); 
+  const uint VectorElems = 4;
+  int stage = 0;
+  float RegsA_Prefetch[(BM*BK)/NumThreads] = {0};
+  float RegsB_Prefetch[(BK*BN)/NumThreads] = {0};
+
+  if (Pipeline > 1) {
+    copy_A_to_Reg_Symm<VectorElems, NumThreads, BM, BK>(A, RegsA_Prefetch, M, K, row, 0);
+    copy_B_to_Reg<VectorElems, NumThreads, BN, BK>(B, RegsB_Prefetch, K, N, 0, col);
+    copy_Reg_to_SmemA<VectorElems, NumThreads, BM, BK>(RegsA_Prefetch, SmemA + SmemASize*0, M, K, row, 0);
+    copy_Reg_to_SmemB<VectorElems, NumThreads, BN, BK, RegN>(RegsB_Prefetch, SmemB + SmemBSize*0, K, N, 0, col);
+  }
+  __syncthreads();
+
+  for (int k = 0; k < K; k += BK) {
+    uint nextStage = Pipeline > 1 ? (stage^1) : 0;
+    
+    if (k + BK < K && Pipeline >= 1) {
+      copy_A_to_Reg_Symm<VectorElems, NumThreads, BM, BK>(A, RegsA_Prefetch, M, K, row, k + BK);
+      copy_B_to_Reg<VectorElems, NumThreads, BN, BK>(B, RegsB_Prefetch, K, N, k + BK, col);
+    }
+    
+    float Areg[RegM];
+    float Breg[RegN];
+    for (int rk = 0; rk < BK; rk += 1) {
+      load_RegA_from_SmemA<VectorElems, BM, RegM>(&SmemA[SmemASize*stage], Areg, thread_m, rk);
+      load_RegB_from_SmemB<VectorElems, BN, RegN>(&SmemB[SmemBSize*stage], Breg, rk, thread_n);
+      #pragma unroll RegM
+      for (int rm = 0; rm < RegM; rm++) {
+        #pragma unroll RegN
+        for (int rn = 0; rn < RegN; rn++) Creg[rm][rn] += Areg[rm] * Breg[rn];
+      }
+    }
+    
+    if (Pipeline > 1 && (k + BK < K)) {
+       uint nextStageForShMem = stage^1;
+       copy_Reg_to_SmemA<VectorElems, NumThreads, BM, BK>(RegsA_Prefetch, SmemA + SmemASize*nextStageForShMem, M, K, row, k + BK);
+       copy_Reg_to_SmemB<VectorElems, NumThreads, BN, BK, RegN>(RegsB_Prefetch, SmemB + SmemBSize*nextStageForShMem, K, N, k + BK, col);
+    }
+    
+    stage = (Pipeline > 1) ? stage^1 : 0;
+    __syncthreads();
+  }
+  
+  #pragma unroll RegM
+  for (int rm = 0; rm < RegM; rm++) {
+    #pragma unroll RegN
+    for (int rn = 0; rn < RegN; rn += VectorElems) {
+      uint vectorRound = (rn/VectorElems)*BN/(RegN/VectorElems) + rn%VectorElems;
+      float temp_out[4];
+      temp_out[0] = Creg[rm][rn+0]; temp_out[1] = Creg[rm][rn+1];
+      temp_out[2] = Creg[rm][rn+2]; temp_out[3] = Creg[rm][rn+3];
+      
+      if ((row + thread_m*RegM + rm) < M && (col + vectorRound + thread_n*VectorElems) < N) {
+          st_global_vec4(temp_out, (float4*)&C[(row + thread_m*RegM + rm) * N + col + vectorRound + thread_n*VectorElems]);
+      }
+    }
+  }
+}
+"""
+            wrapper_code = f"""
+extern "C" void {wrapper_name}({func_args_str}) {{
+    int gridX = ({n_str} / {bn}) * {swizzle_n};
+    int gridY = ({m_str} / {bm} + {swizzle_n} - 1) / {swizzle_n}; 
+    
+    dim3 threadsPerBlock({num_threads});
+    dim3 blocksPerGrid(gridX, gridY);
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start); cudaEventCreate(&stop);
+    cudaEventRecord(start);
+
+    kernel_symm_x_gen<{num_threads}, {swizzle_n}, {pipeline}, {bm}, {bn}, {bk}, 8, 8, 4, 0>
+            <<<blocksPerGrid, threadsPerBlock, {shared_mem_bytes}>>> (
+                    {lhs_ptr}, {rhs_ptr}, {out_ptr}, {m_str}, {n_str}, {k_str}
+            );
+
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float ms = 0;
+    cudaEventElapsedTime(&ms, start, stop);
+    *time_ms_out = ms;
+    
+    double ops = 2.0 * (double){m_str} * (double){n_str} * (double){k_str};
+    *gflops_out = (float)((ops * 1e-9) / (ms / 1000.0));
+
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+}}
+"""
+            return kernel_code + wrapper_code, wrapper_name, ordered_arg_names
+
+      
+
+
+
+
+
+        elif isinstance(lhs, DiagonalMatrix) and isinstance(rhs, GeneralMatrix):
+            
+            kernel_code = """
+#include <cuda_runtime.h>
+#include <stdio.h>
+
+__device__ __forceinline__ void ld_global_vec4(const float4* ptr, float regs[4]) {
+    asm volatile ("ld.global.v4.f32 {%0, %1, %2, %3}, [%4];" :
+                  "=f"(regs[0]), "=f"(regs[1]), "=f"(regs[2]), "=f"(regs[3]) : "l"(ptr));
+}
+
+__device__ __forceinline__ void st_global_vec4(float regs[4], float4* ptr) {
+    asm volatile ("st.global.v4.f32 [%0], {%1, %2, %3, %4};" ::
+                  "l"(ptr), "f"(regs[0]), "f"(regs[1]), "f"(regs[2]), "f"(regs[3]));
+}
+
+__device__ __forceinline__ float ld_global_f32(const float* ptr) {
+  float val;
+  asm volatile ("ld.global.f32 %0, [%1];" : "=f"(val) : "l"(ptr));
+  return val;
+}
+
+__global__ void kernel_diag_x_gen(const float * A_diag, const float * B_gen, float * C, int M, int N) {
+    int col = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    
+    if (row < M && col < N) {
+        float d_val = ld_global_f32(&A_diag[row]);
+        float b_regs[4] = {0.0f};
+        
+        if (col + 3 < N) {
+            ld_global_vec4((const float4*)&B_gen[row * N + col], b_regs);
+        } else {
+            #pragma unroll
+            for(int i=0; i<4; ++i) {
+                if (col + i < N) b_regs[i] = ld_global_f32(&B_gen[row * N + col + i]);
+            }
+        }
+        
+        float c_regs[4];
+        #pragma unroll
+        for(int i=0; i<4; ++i) {
+            c_regs[i] = d_val * b_regs[i];
+        }
+        
+        if (col + 3 < N) {
+            st_global_vec4(c_regs, (float4*)&C[row * N + col]);
+        } else {
+            #pragma unroll
+            for(int i=0; i<4; ++i) {
+                if (col + i < N) C[row * N + col + i] = c_regs[i];
+            }
+        }
+    }
+}
+"""
+            wrapper_code = f"""
+extern "C" void {wrapper_name}({func_args_str}) {{
+    dim3 threads(32, 8);
+    dim3 blocks(({n_str} + (threads.x * 4) - 1) / (threads.x * 4), ({m_str} + threads.y - 1) / threads.y);
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start); cudaEventCreate(&stop);
+    cudaEventRecord(start);
+
+    kernel_diag_x_gen<<<blocks, threads>>>({lhs_ptr}, {rhs_ptr}, {out_ptr}, {m_str}, {n_str});
+
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float ms = 0;
+    cudaEventElapsedTime(&ms, start, stop);
+    *time_ms_out = ms;
+    
+    double ops = 1.0 * (double){m_str} * (double){n_str};
+    *gflops_out = (float)((ops * 1e-9) / (ms / 1000.0));
+
+    cudaEventDestroy(start); cudaEventDestroy(stop);
+}}
+"""
+            return kernel_code + wrapper_code, wrapper_name, ordered_arg_names
+
+
+
+
+        
+
+
+        elif isinstance(lhs, SymmetricMatrix) and isinstance(rhs, SymmetricMatrix):
+            
+            kernel_code = """
+#include <cuda_runtime.h>
+#include <stdio.h>
+
+#define PAD 4
+
+__device__ __forceinline__ void ld_global_vec4(const float4* ptr, float regs[4]) {
+    asm volatile ("ld.global.v4.f32 {%0, %1, %2, %3}, [%4];" :
+                  "=f"(regs[0]), "=f"(regs[1]), "=f"(regs[2]), "=f"(regs[3]) : "l"(ptr));
+}
+
+__device__ __forceinline__ void st_global_vec4(float regs[4], float4* ptr) {
+    asm volatile ("st.global.v4.f32 [%0], {%1, %2, %3, %4};" ::
+                  "l"(ptr), "f"(regs[0]), "f"(regs[1]), "f"(regs[2]), "f"(regs[3]));
+}
+
+__device__ __forceinline__ float ld_global_f32(const float* ptr) {
+  float val;
+  asm volatile ("ld.global.f32 %0, [%1];" : "=f"(val) : "l"(ptr));
+  return val;
+}
+
+
+template<int VectorElems, int NumThreads, int BM, int BK>
+__device__ void copy_A_to_Reg_Symm(const float *A, float RegsA_Prefetch[(BM*BK)/NumThreads], int M, int K, int row_m_start, int col_k_start) {
+  uint ThreadsStrideK = BK/VectorElems;
+  uint ThreadsStrideM = (NumThreads > ThreadsStrideK) ? NumThreads/ThreadsStrideK : 1;
+  uint KElemsPerThread = (NumThreads > ThreadsStrideK) ? 1 : (NumThreads/ThreadsStrideK);
+  uint MElemsPerThread = (NumThreads > ThreadsStrideK) ? BM/(ThreadsStrideM) : 1;
+
+  for (int mEl = 0; mEl < MElemsPerThread; mEl++) {
+    for (int kEl = 0; kEl < KElemsPerThread; kEl++) {
+      uint tm = mEl*ThreadsStrideM + (threadIdx.x/ThreadsStrideK);
+      uint tk = (threadIdx.x%ThreadsStrideK)*VectorElems;
+      int global_m = row_m_start + tm;
+      int global_k_base = col_k_start + tk;
+      float temp_regs[4] = {0.0f};
+
+      if (global_m < M && global_k_base < K) {
+          bool all_upper = (global_k_base >= global_m); 
+          if (all_upper) {
+              size_t m_idx = (size_t)global_m;
+              size_t offset = m_idx * K - ((m_idx * (m_idx - 1)) >> 1) + (size_t)(global_k_base - global_m);
+              if ( (offset % 4 == 0) && (global_k_base + 4 <= K) ) {
+                  ld_global_vec4((const float4*)&A[offset], temp_regs);
+              } else {
+                  #pragma unroll
+                  for(int v=0; v<4; v++) {
+                     if (global_k_base + v < K) temp_regs[v] = ld_global_f32(&A[offset + v]);
+                  }
+              }
+          } else {
+               #pragma unroll
+               for(int v = 0; v < VectorElems; ++v) {
+                  int gk = global_k_base + v;
+                  if (gk < K) {
+                      int row = (global_m <= gk) ? global_m : gk;
+                      int col = (global_m <= gk) ? gk : global_m;
+                      size_t r_idx = (size_t)row;
+                      temp_regs[v] = ld_global_f32(&A[r_idx * K - ((r_idx * (r_idx - 1)) >> 1) + (size_t)(col - row)]);
+                  }
+              }
+          }
+      }
+      RegsA_Prefetch[mEl*VectorElems*KElemsPerThread + kEl*VectorElems + 0] = temp_regs[0];
+      RegsA_Prefetch[mEl*VectorElems*KElemsPerThread + kEl*VectorElems + 1] = temp_regs[1];
+      RegsA_Prefetch[mEl*VectorElems*KElemsPerThread + kEl*VectorElems + 2] = temp_regs[2];
+      RegsA_Prefetch[mEl*VectorElems*KElemsPerThread + kEl*VectorElems + 3] = temp_regs[3];
+    }
+  }
+}
+
+
+template<int VectorElems, int NumThreads, int BN, int BK>
+__device__ void copy_B_to_Reg_Symm(const float *B, float RegsB_Prefetch[(BN*BK)/NumThreads], int K, int N, int row_k_start, int col_n_start) {
+  uint ThreadsStrideN = BN/VectorElems;
+  uint ThreadsStrideK = (NumThreads > ThreadsStrideN) ? NumThreads/ThreadsStrideN : 1;
+  uint KElemsPerThread = BK/ThreadsStrideK;
+
+  for (int kEl = 0; kEl < KElemsPerThread; kEl ++) {
+    int tk = kEl*ThreadsStrideK + threadIdx.x/ThreadsStrideN;
+    int tn = (threadIdx.x%ThreadsStrideN)*VectorElems;
+    int global_k = row_k_start + tk;
+    int global_n_base = col_n_start + tn;
+    float temp_regs[4] = {0.0f};
+
+    if (global_k < K && global_n_base < N) {
+        bool all_upper = (global_n_base >= global_k); 
+        if (all_upper) {
+            size_t k_idx = (size_t)global_k;
+            size_t offset = k_idx * N - ((k_idx * (k_idx - 1)) >> 1) + (size_t)(global_n_base - global_k);
+            if ( (offset % 4 == 0) && (global_n_base + 4 <= N) ) {
+                ld_global_vec4((const float4*)&B[offset], temp_regs);
+            } else {
+                #pragma unroll
+                for(int v=0; v<4; v++) {
+                   if (global_n_base + v < N) temp_regs[v] = ld_global_f32(&B[offset + v]);
+                }
+            }
+        } else {
+             #pragma unroll
+             for(int v = 0; v < VectorElems; ++v) {
+                int gn = global_n_base + v;
+                if (gn < N) {
+                    int row = (global_k <= gn) ? global_k : gn;
+                    int col = (global_k <= gn) ? gn : global_k;
+                    size_t r_idx = (size_t)row;
+                    temp_regs[v] = ld_global_f32(&B[r_idx * N - ((r_idx * (r_idx - 1)) >> 1) + (size_t)(col - row)]);
+                }
+            }
+        }
+    }
+    RegsB_Prefetch[kEl*VectorElems + 0] = temp_regs[0];
+    RegsB_Prefetch[kEl*VectorElems + 1] = temp_regs[1];
+    RegsB_Prefetch[kEl*VectorElems + 2] = temp_regs[2];
+    RegsB_Prefetch[kEl*VectorElems + 3] = temp_regs[3];
+  }
+}
+
+template<int VectorElems, int NumThreads, int BM, int BK>
+__device__ void copy_Reg_to_SmemA(const float RegsA_Prefetch[(BM*BK)/NumThreads], float *SmemA, int M, int K, int row, int col) {
+  uint ThreadsStrideK = BK/VectorElems;
+  uint ThreadsStrideM = (NumThreads > ThreadsStrideK) ? NumThreads/ThreadsStrideK : 1;
+  uint MElemsPerThread = (NumThreads > ThreadsStrideK) ? BM/(ThreadsStrideM) : 1;
+  for (int mEl = 0; mEl < MElemsPerThread; mEl++) {
+      uint tm = mEl*ThreadsStrideM + (threadIdx.x/ThreadsStrideK);
+      uint tk = (threadIdx.x%ThreadsStrideK)*VectorElems;
+      int StrideA = BM + 4;
+      SmemA[(tk + 0) * StrideA + tm] = RegsA_Prefetch[mEl*VectorElems + 0];
+      SmemA[(tk + 1) * StrideA + tm] = RegsA_Prefetch[mEl*VectorElems + 1];
+      SmemA[(tk + 2) * StrideA + tm] = RegsA_Prefetch[mEl*VectorElems + 2];
+      SmemA[(tk + 3) * StrideA + tm] = RegsA_Prefetch[mEl*VectorElems + 3];
+  }
+}
+
+template<int VectorElems, int NumThreads, int BN, int BK, int RegN>
+__device__ void copy_Reg_to_SmemB(const float RegsB_Prefetch[(BN*BK)/NumThreads], float *SmemB, int K, int N, int row, int col) {
+  uint ThreadsStrideN = BN/VectorElems;
+  uint ThreadsStrideK = (NumThreads > ThreadsStrideN) ? NumThreads/ThreadsStrideN : 1;
+  uint KElemsPerThread = BK/ThreadsStrideK;
+  for (int kEl = 0; kEl < KElemsPerThread; kEl ++) {
+    int tk = kEl*ThreadsStrideK + threadIdx.x/ThreadsStrideN;
+    int tn = (threadIdx.x%ThreadsStrideN)*VectorElems;
+    int StrideB = BN + PAD;
+    *(float4*)&SmemB[tk * StrideB + tn] = make_float4(RegsB_Prefetch[kEl*VectorElems + 0],
+                                                 RegsB_Prefetch[kEl*VectorElems + 1],
+                                                 RegsB_Prefetch[kEl*VectorElems + 2],
+                                                 RegsB_Prefetch[kEl*VectorElems + 3]);
+  }
+}
+
+template<int VectorElems,int BM,int RegM>
+__device__ void load_RegA_from_SmemA(const float* SmemA, float* Areg,uint thread_m, uint rk) {
+    int StrideA = BM + 4;
+    #pragma unroll
+    for (int rm = 0; rm < RegM; ++rm) Areg[rm] = SmemA[rk * StrideA + (thread_m * RegM + rm)];
+}
+
+template<int VectorElems, int BN, int RegN>
+__device__ void load_RegB_from_SmemB(const float* SmemB, float* Breg, uint rk, uint thread_n) {
+  for (int rn = 0; rn < RegN; rn += VectorElems) {
+    uint vectorRound = (rn/VectorElems)*BN/(RegN/VectorElems) + rn%VectorElems;
+    int StrideB = BN + PAD;
+    float4 vec = *(float4*)&SmemB[rk * StrideB + vectorRound + thread_n*VectorElems];
+    Breg[rn+0] = vec.x; Breg[rn+1] = vec.y; Breg[rn+2] = vec.z; Breg[rn+3] = vec.w;
+  }
+}
+
+template<int NumThreads, int SwizzleN, int Pipeline, int BM, int BN, int BK, int RegM, int RegN, int RegK, int APadding>
+__global__ void kernel_symm_x_symm(const float *A, const float *B, float *C, int M, int N, int K) {
+  extern __shared__ char SharedMem[];
+  int col = (blockIdx.x / SwizzleN) * BN;
+  int row = (blockIdx.y * SwizzleN + (blockIdx.x % SwizzleN)) * BM;
+  if (row >= M || col >= N) return; 
+
+  size_t SmemASize = (BM + 4) * BK;
+  size_t SmemBSize = (BN + 4) * BK;
+  float* SmemA = (float*)&SharedMem[0];
+  float* SmemB = (float*)&SharedMem[SmemASize * Pipeline * sizeof(float)];
+  float Creg[RegM][RegN] = {{0.0f}};
+  
+  int thread_n = threadIdx.x % (BN/RegN); 
+  int thread_m = threadIdx.x / (BN/RegN); 
+  const uint VectorElems = 4;
+  int stage = 0;
+  float RegsA_Prefetch[(BM*BK)/NumThreads] = {0};
+  float RegsB_Prefetch[(BK*BN)/NumThreads] = {0};
+
+  if (Pipeline > 1) {
+    copy_A_to_Reg_Symm<VectorElems, NumThreads, BM, BK>(A, RegsA_Prefetch, M, K, row, 0);
+    copy_B_to_Reg_Symm<VectorElems, NumThreads, BN, BK>(B, RegsB_Prefetch, K, N, 0, col);
+    copy_Reg_to_SmemA<VectorElems, NumThreads, BM, BK>(RegsA_Prefetch, SmemA + SmemASize*0, M, K, row, 0);
+    copy_Reg_to_SmemB<VectorElems, NumThreads, BN, BK, RegN>(RegsB_Prefetch, SmemB + SmemBSize*0, K, N, 0, col);
+  }
+  __syncthreads();
+
+  for (int k = 0; k < K; k += BK) {
+    uint nextStage = Pipeline > 1 ? (stage^1) : 0;
+    
+    if (k + BK < K && Pipeline >= 1) {
+      copy_A_to_Reg_Symm<VectorElems, NumThreads, BM, BK>(A, RegsA_Prefetch, M, K, row, k + BK);
+      copy_B_to_Reg_Symm<VectorElems, NumThreads, BN, BK>(B, RegsB_Prefetch, K, N, k + BK, col);
+    }
+    
+    float Areg[RegM];
+    float Breg[RegN];
+    for (int rk = 0; rk < BK; rk += 1) {
+      load_RegA_from_SmemA<VectorElems, BM, RegM>(&SmemA[SmemASize*stage], Areg, thread_m, rk);
+      load_RegB_from_SmemB<VectorElems, BN, RegN>(&SmemB[SmemBSize*stage], Breg, rk, thread_n);
+      #pragma unroll RegM
+      for (int rm = 0; rm < RegM; rm++) {
+        #pragma unroll RegN
+        for (int rn = 0; rn < RegN; rn++) Creg[rm][rn] += Areg[rm] * Breg[rn];
+      }
+    }
+    
+    if (Pipeline > 1 && (k + BK < K)) {
+       uint nextStageForShMem = stage^1;
+       copy_Reg_to_SmemA<VectorElems, NumThreads, BM, BK>(RegsA_Prefetch, SmemA + SmemASize*nextStageForShMem, M, K, row, k + BK);
+       copy_Reg_to_SmemB<VectorElems, NumThreads, BN, BK, RegN>(RegsB_Prefetch, SmemB + SmemBSize*nextStageForShMem, K, N, k + BK, col);
+    }
+    
+    stage = (Pipeline > 1) ? stage^1 : 0;
+    __syncthreads();
+  }
+  
+  #pragma unroll RegM
+  for (int rm = 0; rm < RegM; rm++) {
+    #pragma unroll RegN
+    for (int rn = 0; rn < RegN; rn += VectorElems) {
+      uint vectorRound = (rn/VectorElems)*BN/(RegN/VectorElems) + rn%VectorElems;
+      float temp_out[4];
+      temp_out[0] = Creg[rm][rn+0]; temp_out[1] = Creg[rm][rn+1];
+      temp_out[2] = Creg[rm][rn+2]; temp_out[3] = Creg[rm][rn+3];
+      if ((row + thread_m*RegM + rm) < M && (col + vectorRound + thread_n*VectorElems) < N) {
+          st_global_vec4(temp_out, (float4*)&C[(row + thread_m*RegM + rm) * N + col + vectorRound + thread_n*VectorElems]);
+      }
+    }
+  }
+}
+"""
+            wrapper_code = f"""
+extern "C" void {wrapper_name}({func_args_str}) {{
+    int gridX = ({n_str} / {bn}) * {swizzle_n};
+    int gridY = ({m_str} / {bm} + {swizzle_n} - 1) / {swizzle_n}; 
+    
+    dim3 threadsPerBlock({num_threads});
+    dim3 blocksPerGrid(gridX, gridY);
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start); cudaEventCreate(&stop);
+    cudaEventRecord(start);
+
+    kernel_symm_x_symm<{num_threads}, {swizzle_n}, {pipeline}, {bm}, {bn}, {bk}, 8, 8, 4, 0>
+            <<<blocksPerGrid, threadsPerBlock, {shared_mem_bytes}>>> (
+                    {lhs_ptr}, {rhs_ptr}, {out_ptr}, {m_str}, {n_str}, {k_str}
+            );
+
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float ms = 0;
+    cudaEventElapsedTime(&ms, start, stop);
+    *time_ms_out = ms;
+    
+    double ops = 2.0 * (double){m_str} * (double){n_str} * (double){k_str};
+    *gflops_out = (float)((ops * 1e-9) / (ms / 1000.0));
+
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+}}
+"""
+            return kernel_code + wrapper_code, wrapper_name, ordered_arg_names
+
+
+
+        
+
+
+
+
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         else:
-            raise NotImplementedError(f"Matmul for {type(lhs)} x {type(rhs)} is not yet implemented.")
+            raise NotImplementedError(f"Matmul for {type(lhs)} x {type(rhs)} is not  implemented.")
 
     elif out_node.operator == 'add':
         m_var = lhs.shape[0]
