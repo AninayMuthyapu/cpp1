@@ -35,9 +35,11 @@ make diagonal
 # To Compile GPU codes 
 
 Enter into src folder then actiavte Python Environment
+
 source venv/bin/activate
 
 to run basic test cases  for gen xgen ,gen xsymmxgen x diagonal enter-(Only inside src folder)
+
 python main2.py
 
 
