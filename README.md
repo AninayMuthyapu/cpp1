@@ -32,7 +32,7 @@ make diagonal
 
 
 
-# To Compile GPU codes 
+# To Compile DSL
 
 Enter into src folder then actiavte Python Environment
 
