@@ -1,77 +1,139 @@
-import numpy as np
 import torch
-import time
-
+import numpy as np
 from dsl.var import Var
-from dsl.matrix import GeneralMatrix
+from dsl.matrix import GeneralMatrix, SymmetricMatrix, DiagonalMatrix
 from dsl.runner_cuda import run
 
-def run_pytorch_benchmark(n, A_np, B_np):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    A_torch = torch.from_numpy(A_np).to(device)
-    B_torch = torch.from_numpy(B_np).to(device)
 
-    iters = 20
-    start_event = torch.cuda.Event(enable_timing=True)
-    end_event = torch.cuda.Event(enable_timing=True)
+def run_pytorch_benchmark(A, B, flops, iters=20):
+    start = torch.cuda.Event(True)
+    end = torch.cuda.Event(True)
 
-    start_event.record()
+    start.record()
     for _ in range(iters):
-        C_torch = torch.matmul(A_torch, B_torch)
-    end_event.record()
-    
+        C = torch.matmul(A, B)
+    end.record()
+
     torch.cuda.synchronize()
-    elapsed_time_ms = start_event.elapsed_time(end_event) / iters
+    t = start.elapsed_time(end) / iters
+    gflops = (flops * 1e-9) / (t / 1000.0)
+    return C, t, gflops
 
-    flops = 2.0 * (n ** 3)
-    gflops = (flops * 1e-9) / (elapsed_time_ms / 1000.0)
 
-    return C_torch.cpu().numpy(), elapsed_time_ms, gflops
+def verify(name, custom, torch_res, expected, ct, cg, tt, tg):
+    c = custom.cpu().numpy()
+    t = torch_res.cpu().numpy()
+    e = expected.cpu().numpy()
 
-def test_gen_x_gen_comparison():
-    n_val = 4096 
-    
-    A_full = np.random.rand(n_val, n_val).astype(np.float32)
-    B_full = np.random.rand(n_val, n_val).astype(np.float32)
+    print(f"\n{'='*60}")
+    print(name)
+    print(f"CUDA    : {ct:8.4f} ms | {cg:8.2f} GFLOPS")
+    print(f"PyTorch : {tt:8.4f} ms | {tg:8.2f} GFLOPS")
 
+    print("Custom :", "PASS" if np.allclose(c, e, 1e-1, 1e-2) else "FAIL")
+    print("Torch  :", "PASS" if np.allclose(t, e, 1e-1, 1e-2) else "FAIL")
+    print(f"{'='*60}")
+
+
+def test_symm_x_gen():
+    n_val = 4096
     n = Var("n")
-    A = GeneralMatrix((n, n), "A")
-    B = GeneralMatrix((n, n), "B")
-    op_node = A @ B 
-    out_matrix = GeneralMatrix((n, n), "C")
 
-    input_data = {
-        "n": n_val,
-        "A": A_full,
-        "B": B_full 
-    }
+    A_tmp = torch.rand(n_val, n_val, device="cuda")
+    A_full = (A_tmp + A_tmp.t()) * 0.5
+    idx = torch.triu_indices(n_val, n_val, device="cuda")
+    A_pack = A_full[idx[0], idx[1]].contiguous()
 
-    results, custom_time_ms, custom_gflops = run(
-        outs=[op_node], 
-        inputs=input_data, 
-        backend="cuda", 
-        out_matrix_obj=out_matrix
-    )
-    custom_result = results["C"]
+    B = torch.rand(n_val, n_val, device="cuda")
 
-    torch_result, torch_time_ms, torch_gflops = run_pytorch_benchmark(n_val, A_full, B_full)
+    A = SymmetricMatrix((n, n), "A")
+    Bm = GeneralMatrix((n, n), "B")
+    out = GeneralMatrix((n, n), "C")
 
-    print(f" CUDA - Time: {custom_time_ms:.4f} ms | GFLOPS: {custom_gflops:.4f}")
-    print(f"PyTorch     - Time: {torch_time_ms:.4f} ms | GFLOPS: {torch_gflops:.4f}")
-    
-    expected = A_full @ B_full
-    
-    if np.allclose(custom_result, expected, atol=1e-2, rtol=1e-3):
-        print(" Output matches.")
-    else:
-        diff = np.max(np.abs(custom_result - expected))
-        print(f" Output mismatch (Max Diff: {diff:.6f})")
+    res, ct, cg = run([A @ Bm], {"n": n_val, "A": A_pack, "B": B}, "cuda", out)
 
-    if np.allclose(torch_result, expected, atol=1e-2, rtol=1e-3):
-        print("PyTorch Output matches .")
-    else:
-        diff = np.max(np.abs(torch_result - expected))
-        print(f"PyTorch Output mismatch (Max Diff: {diff:.6f})")
+    exp = torch.matmul(A_full, B)
+    flops = 2.0 * n_val**3
+    tr, tt, tg = run_pytorch_benchmark(A_full, B, flops)
+
+    verify("Symm x Gen", res["C"].view(n_val, n_val), tr, exp, ct, cg, tt, tg)
+
+
+def test_diag_x_gen():
+    n_val = 4096
+    n = Var("n")
+
+    A_diag = torch.rand(n_val, device="cuda")
+    A_full = torch.diag(A_diag)
+    B = torch.rand(n_val, n_val, device="cuda")
+
+    A = DiagonalMatrix((n, n), "A")
+    Bm = GeneralMatrix((n, n), "B")
+    out = GeneralMatrix((n, n), "C")
+
+    res, ct, cg = run([A @ Bm], {"n": n_val, "A": A_diag, "B": B}, "cuda", out)
+
+    exp = torch.matmul(A_full, B)
+    flops = 1.0 * n_val**2
+    tr, tt, tg = run_pytorch_benchmark(A_full, B, flops)
+
+    verify("Diag x Gen", res["C"].view(n_val, n_val), tr, exp, ct, cg, tt, tg)
+
+
+def test_symm_x_symm():
+    n_val = 4096
+    n = Var("n")
+
+    A_tmp = torch.rand(n_val, n_val, device="cuda")
+    B_tmp = torch.rand(n_val, n_val, device="cuda")
+
+    A_full = (A_tmp + A_tmp.t()) * 0.5
+    B_full = (B_tmp + B_tmp.t()) * 0.5
+
+    idx = torch.triu_indices(n_val, n_val, device="cuda")
+    A_pack = A_full[idx[0], idx[1]].contiguous()
+    B_pack = B_full[idx[0], idx[1]].contiguous()
+
+    A = SymmetricMatrix((n, n), "A")
+    B = SymmetricMatrix((n, n), "B")
+    out = GeneralMatrix((n, n), "C")
+
+    res, ct, cg = run([A @ B], {"n": n_val, "A": A_pack, "B": B_pack}, "cuda", out)
+
+    exp = torch.matmul(A_full, B_full)
+    flops = 2.0 * n_val**3
+    tr, tt, tg = run_pytorch_benchmark(A_full, B_full, flops)
+
+    verify("Symm x Symm", res["C"].view(n_val, n_val), tr, exp, ct, cg, tt, tg)
+
+
+def test_gen_x_symm():
+    n_val = 4096
+    n = Var("n")
+
+    A = torch.rand(n_val, n_val, device="cuda")
+
+    B_tmp = torch.rand(n_val, n_val, device="cuda")
+    B_full = (B_tmp + B_tmp.t()) * 0.5
+
+    idx = torch.triu_indices(n_val, n_val, device="cuda")
+    B_pack = B_full[idx[0], idx[1]].contiguous()
+
+    Am = GeneralMatrix((n, n), "A")
+    Bm = SymmetricMatrix((n, n), "B")
+    out = GeneralMatrix((n, n), "C")
+
+    res, ct, cg = run([Am @ Bm], {"n": n_val, "A": A, "B": B_pack}, "cuda", out)
+
+    exp = torch.matmul(A, B_full)
+    flops = 2.0 * n_val**3
+    tr, tt, tg = run_pytorch_benchmark(A, B_full, flops)
+
+    verify("Gen x Symm", res["C"].view(n_val, n_val), tr, exp, ct, cg, tt, tg)
+
 
 if __name__ == "__main__":
-    test_gen_x_gen_comparison()
+    test_gen_x_symm()
+    test_symm_x_gen()
+    test_diag_x_gen()
+    test_symm_x_symm()
